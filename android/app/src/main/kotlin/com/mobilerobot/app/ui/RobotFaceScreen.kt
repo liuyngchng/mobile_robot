@@ -106,7 +106,6 @@ fun RobotFaceScreen(
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
-            val cy = size.height / 2f
             val eyeY = size.height * EYE_Y_FRACTION
             val mouthY = size.height * MOUTH_Y_FRACTION
 
