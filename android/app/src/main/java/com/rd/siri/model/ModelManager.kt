@@ -158,8 +158,11 @@ object ModelManager {
     ): Result<Unit> {
         return try {
             val totalSize = getSize(context, uri)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                // Auto-detect bzip2 compression: read magic bytes "BZh"
+            context.contentResolver.openInputStream(uri)?.use { rawInput ->
+                // Wrap ONCE in BufferedInputStream for mark/reset support.
+                // isBzip2Stream will peek and reset, so the same stream can
+                // be reused for decompression/extraction without data loss.
+                val input = java.io.BufferedInputStream(rawInput)
                 val wrapped = if (isBzip2Stream(input)) {
                     Log.i(TAG, "Tar: detected bzip2 compression, auto-decompressing")
                     BZip2CompressorInputStream(input)
@@ -371,14 +374,15 @@ object ModelManager {
 
     /**
      * Peek at the first 3 bytes of the stream to detect bzip2 magic ("BZh").
-     * The stream must support mark/reset; wrap with [java.io.BufferedInputStream] if needed.
+     * The stream must support mark/reset (caller should wrap with
+     * [java.io.BufferedInputStream] before passing).
      */
     private fun isBzip2Stream(input: InputStream): Boolean {
         return try {
-            val buf = java.io.BufferedInputStream(input).also { it.mark(3) }
+            input.mark(3)
             val magic = ByteArray(3)
-            val n = buf.read(magic)
-            buf.reset()
+            val n = input.read(magic)
+            input.reset()
             n == 3 && magic[0] == 'B'.code.toByte() && magic[1] == 'Z'.code.toByte() && magic[2] == 'h'.code.toByte()
         } catch (_: Exception) {
             false
