@@ -41,9 +41,9 @@
 
 | 模块 | 来源 | 包名 |
 |------|------|------|
-| **FaceDetector** | mobile_robot 原创 | `com.mobilerobot.app.camera` |
-| **RobotFaceScreen** | mobile_robot 原创 | `com.mobilerobot.app.ui` |
-| **BehaviorEngine** | mobile_robot 原创 | `com.mobilerobot.app.robot` |
+| **FaceDetector** | avatar 原创 | `com.mobilerobot.app.camera` |
+| **RobotFaceScreen** | avatar 原创 | `com.mobilerobot.app.ui` |
+| **BehaviorEngine** | avatar 原创 | `com.mobilerobot.app.robot` |
 | **SherpaAsrEngine** | 从 siri 搬 | `com.rd.siri.asr` |
 | **SherpaTtsEngine** | 从 siri 搬 | `com.rd.siri.tts` |
 | **AudioRecorder** | 从 siri 搬 | `com.rd.siri.audio` |

@@ -1,4 +1,4 @@
-# Mobile Robot — 纯手机版机器人伴侣
+# Avatar — 纯手机版机器人伴侣
 
 一部 Android 12 手机 = 机器人的眼睛、耳朵、嘴巴和脸。
 
@@ -39,7 +39,7 @@ File → Open → 选择 android/ 目录
 ## 项目结构
 
 ```
-mobile_robot/
+avatar/
 ├── README.md
 ├── docs/
 │   ├── architecture.md       # 系统架构
