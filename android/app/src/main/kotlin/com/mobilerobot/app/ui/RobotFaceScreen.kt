@@ -9,10 +9,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import com.mobilerobot.app.robot.Emotion
 import com.mobilerobot.app.robot.RobotMode
@@ -23,32 +27,51 @@ import kotlin.random.Random
 
 // ─── Color Palette ────────────────────────────────────────────
 private val ColorBg = Color(0xFF1A1A2E)
-private val ColorFaceFill = Color(0xFFF5F0EB)
+private val ColorFaceFillLight = Color(0xFFFAF5F0)
+private val ColorFaceFillMid   = Color(0xFFEBE3DB)
 private val ColorFaceBorder = Color(0xFF444477)
 private val ColorEyeSocket = Color(0xFFFFFFFF)
 private val ColorPupil = Color(0xFF16213E)
 private val ColorIris = Color(0xFF0F3460)
 private val ColorHighlight = Color(0xFFFFFFFF)
 private val ColorMouth = Color(0xFFE94560)
-private val ColorBlush = Color(0x55E94560)
-private val ColorEyebrow = Color(0xFF2D2D44)
+private val ColorBlush = Color(0x4DE94560)
+private val ColorEyebrow = Color(0xBF2D2D44)  // ~75% opaque
+
+// Robot parts
+private val ColorEarFill = Color(0xFF383866)
+private val ColorEarHighlight = Color(0xFF666699)
+private val ColorAntennaStroke = Color(0xFF4D4D80)
+private val ColorAntennaGlow = Color(0xCC66AAFF)
 
 // ─── Geometry Constants (relative to canvas size) ─────────────
-private const val FACE_RADIUS_FRACTION = 0.40f     // round face radius
-private const val FACE_CENTER_Y_FRACTION = 0.46f    // face vertical center
-private const val EYE_Y_FRACTION = 0.36f            // eyes vertical position
-private const val EYE_SPACING_FRACTION = 0.22f      // distance from center to each eye
-private const val EYE_SOCKET_W_FRACTION = 0.18f     // socket width
-private const val EYE_SOCKET_H_FRACTION = 0.24f     // socket height
-private const val PUPIL_RADIUS_FRACTION = 0.07f     // pupil size
-private const val PUPIL_MAX_OFFSET_X_FRACTION = 0.07f // max pupil horizontal travel
-private const val PUPIL_MAX_OFFSET_Y_FRACTION = 0.04f // max pupil vertical travel
-private const val IRIS_RADIUS_FRACTION = 0.09f      // iris radius
-private const val MOUTH_Y_FRACTION = 0.64f          // mouth vertical position
-private const val MOUTH_W_FRACTION = 0.16f          // mouth half-width
-private const val EYEBROW_Y_OFFSET_FRACTION = 0.075f // eyebrow above eye center
-private const val EYEBROW_LENGTH_FRACTION = 0.14f    // eyebrow half-length
-private const val EYEBROW_THICKNESS = 5f
+private const val FACE_RADIUS_FRACTION = 0.38f
+private const val FACE_CENTER_Y_FRACTION = 0.46f
+private const val EYE_Y_FRACTION = 0.36f
+private const val EYE_SPACING_FRACTION = 0.22f
+private const val EYE_SOCKET_W_FRACTION = 0.18f
+private const val EYE_SOCKET_H_FRACTION = 0.24f
+private const val PUPIL_RADIUS_FRACTION = 0.07f
+private const val PUPIL_MAX_OFFSET_X_FRACTION = 0.07f
+private const val PUPIL_MAX_OFFSET_Y_FRACTION = 0.04f
+private const val IRIS_RADIUS_FRACTION = 0.09f
+private const val MOUTH_Y_FRACTION = 0.64f
+private const val MOUTH_W_FRACTION = 0.16f
+private const val EYEBROW_Y_OFFSET_FRACTION = 0.078f
+private const val EYEBROW_LENGTH_FRACTION = 0.14f
+private const val EYEBROW_THICKNESS = 3.5f
+
+// Robot ears
+private const val EAR_W_FRACTION = 0.09f
+private const val EAR_H_FRACTION = 0.18f
+private const val EAR_OFFSET_X_FRACTION = 0.44f
+private const val EAR_Y_FRACTION = 0.38f
+
+// Antenna
+private const val ANTENNA_BASE_Y_FRACTION = 0.04f
+private const val ANTENNA_HEIGHT_FRACTION = 0.10f
+private const val ANTENNA_BALL_RADIUS_FRACTION = 0.025f
+private const val ANTENNA_STICK_WIDTH = 3f
 
 @Composable
 fun RobotFaceScreen(
@@ -56,7 +79,6 @@ fun RobotFaceScreen(
     onTap: () -> Unit = {},
     onLongPress: () -> Unit = {}
 ) {
-    // Smoothly interpolate face target for eye movement
     val targetX by animateFloatAsState(
         targetValue = state.faceTargetX ?: 0.5f,
         animationSpec = tween(200, easing = FastOutSlowInEasing)
@@ -66,17 +88,11 @@ fun RobotFaceScreen(
         animationSpec = tween(200, easing = FastOutSlowInEasing)
     )
 
-    // Idle wander when no face detected
     val idleWander = remember { Animatable(0f) }
     val blinkProgress = remember { Animatable(0f) }
-
-    // Speaking mouth oscillation
     val speakMouth = remember { Animatable(0f) }
-
-    // Thinking eye animation (eyes look up, dart around)
     val thinkPhase = remember { Animatable(0f) }
 
-    // Idle eye wandering animation
     LaunchedEffect(state.faceTargetX) {
         if (state.faceTargetX == null) {
             while (true) {
@@ -88,7 +104,6 @@ fun RobotFaceScreen(
         }
     }
 
-    // Blinking animation
     LaunchedEffect(state.blinkTrigger) {
         if (state.blinkTrigger > 0L) {
             blinkProgress.snapTo(0f)
@@ -98,7 +113,6 @@ fun RobotFaceScreen(
         }
     }
 
-    // Speaking: oscillate mouth open/close
     LaunchedEffect(state.isSpeaking) {
         if (state.isSpeaking) {
             while (true) {
@@ -110,7 +124,6 @@ fun RobotFaceScreen(
         }
     }
 
-    // Thinking: eyes look up + dart, phase oscillates
     LaunchedEffect(state.mode) {
         if (state.mode == RobotMode.THINKING) {
             while (true) {
@@ -138,18 +151,29 @@ fun RobotFaceScreen(
             val cy = size.height * FACE_CENTER_Y_FRACTION
             val faceRadius = size.width * FACE_RADIUS_FRACTION
 
-            // ── Round face outline ──
+            // ── Robot ears ──
+            drawEars(cx, cy, faceRadius)
+
+            // ── Face with radial gradient ──
+            val faceCenter = Offset(cx, cy)
             drawCircle(
-                color = ColorFaceFill,
+                brush = Brush.radialGradient(
+                    colors = listOf(ColorFaceFillLight, ColorFaceFillMid),
+                    center = Offset(cx, cy - faceRadius * 0.5f),
+                    radius = faceRadius * 1.1f
+                ),
                 radius = faceRadius,
-                center = Offset(cx, cy)
+                center = faceCenter
             )
             drawCircle(
                 color = ColorFaceBorder,
                 radius = faceRadius,
-                center = Offset(cx, cy),
+                center = faceCenter,
                 style = Stroke(width = 4f)
             )
+
+            // ── Antenna ──
+            drawAntenna(cx, cy, faceRadius)
 
             val eyeY = size.height * EYE_Y_FRACTION
             val mouthY = size.height * MOUTH_Y_FRACTION
@@ -165,7 +189,6 @@ fun RobotFaceScreen(
             val eyebrowHalfLen = size.width * EYEBROW_LENGTH_FRACTION
             val eyebrowYOff = size.width * EYEBROW_Y_OFFSET_FRACTION
 
-            // Thinking: override pupil to look up
             val isThinking = state.mode == RobotMode.THINKING
             val (pupilDx, pupilDy) = if (isThinking) {
                 (thinkPhase.value * maxPupilOffsetX * 0.3f) to (-maxPupilOffsetY * 0.9f)
@@ -176,18 +199,18 @@ fun RobotFaceScreen(
                 )
             }
 
-            // ── Draw blush ──
+            // ── Blush ──
             if (state.emotion == Emotion.HAPPY || state.emotion == Emotion.SHY) {
-                drawBlush(leftEyeCx, eyeY, socketW, color = ColorBlush)
-                drawBlush(rightEyeCx, eyeY, socketW, color = ColorBlush)
+                drawBlush(leftEyeCx, eyeY, socketW)
+                drawBlush(rightEyeCx, eyeY, socketW)
             }
 
-            // ── Draw eyebrows ──
+            // ── Eyebrows ──
             val browEmotion = if (isThinking) Emotion.CURIOUS else state.emotion
             drawEyebrow(leftEyeCx, eyeY - eyebrowYOff, eyebrowHalfLen, browEmotion, left = true)
             drawEyebrow(rightEyeCx, eyeY - eyebrowYOff, eyebrowHalfLen, browEmotion, left = false)
 
-            // ── Draw eyes ──
+            // ── Eyes ──
             drawEye(
                 eyeCx = leftEyeCx, eyeY = eyeY,
                 socketW = socketW, socketH = socketH,
@@ -205,7 +228,7 @@ fun RobotFaceScreen(
                 emotion = state.emotion
             )
 
-            // ── Draw mouth ──
+            // ── Mouth ──
             drawMouth(
                 cx = cx, mouthY = mouthY,
                 halfWidth = mouthHalfW,
@@ -217,8 +240,23 @@ fun RobotFaceScreen(
             // ── Mode indicators ──
             when (state.mode) {
                 RobotMode.LISTENING -> drawListeningIndicator(cx, cy + faceRadius + 28f)
-                RobotMode.THINKING -> drawThinkingIndicator(cx, cy - faceRadius - 20f)
+                RobotMode.THINKING -> drawThinkingIndicator(cx, cy - faceRadius - 40f)
                 else -> {}
+            }
+
+            // ── Status ring ──
+            if (state.mode == RobotMode.THINKING || state.mode == RobotMode.SPEAKING) {
+                val alpha = if (state.mode == RobotMode.THINKING) 0.4f else 0.9f
+                val color = if (state.mode == RobotMode.THINKING)
+                    Color(0xFF66AAFF).copy(alpha = alpha)
+                else
+                    ColorMouth.copy(alpha = alpha)
+                drawCircle(
+                    color = color,
+                    radius = faceRadius + 6f,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 3f)
+                )
             }
 
             // ── Face text below ──
@@ -246,6 +284,97 @@ private fun computePupilOffset(
     }
 }
 
+// ─── Robot Ears ────────────────────────────────────────────────
+
+private fun DrawScope.drawEars(faceCx: Float, faceCy: Float, faceRadius: Float) {
+    val earW = size.width * EAR_W_FRACTION
+    val earH = size.height * EAR_H_FRACTION
+    val earOffX = size.width * EAR_OFFSET_X_FRACTION
+    val earY = size.height * EAR_Y_FRACTION
+    val cornerR = earW * 0.45f
+
+    for (side in listOf(-1f, 1f)) {
+        val earCx = faceCx + earOffX * side
+        val earRect = androidx.compose.ui.geometry.Rect(
+            offset = Offset(earCx - earW / 2f, earY - earH / 2f),
+            size = Size(earW, earH)
+        )
+        val earPath = Path().apply {
+            addRoundRect(
+                androidx.compose.ui.geometry.RoundRect(
+                    earRect,
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
+                )
+            )
+        }
+
+        clipPath(earPath) {
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(ColorEarHighlight, ColorEarFill),
+                    start = Offset(earCx, earY - earH / 2f),
+                    end = Offset(earCx, earY + earH / 2f)
+                )
+            )
+        }
+
+        drawPath(
+            path = earPath,
+            color = ColorFaceBorder,
+            style = Stroke(width = 2.5f)
+        )
+    }
+}
+
+// ─── Antenna ───────────────────────────────────────────────────
+
+private fun DrawScope.drawAntenna(faceCx: Float, faceCy: Float, faceRadius: Float) {
+    val baseY = faceCy - faceRadius + size.height * ANTENNA_BASE_Y_FRACTION
+    val stickH = size.height * ANTENNA_HEIGHT_FRACTION
+    val ballR = size.width * ANTENNA_BALL_RADIUS_FRACTION
+    val tipY = baseY - stickH
+    val ballCy = tipY - ballR
+
+    // Stick
+    drawLine(
+        color = ColorAntennaStroke,
+        start = Offset(faceCx, baseY),
+        end = Offset(faceCx, tipY),
+        strokeWidth = ANTENNA_STICK_WIDTH,
+        cap = androidx.compose.ui.graphics.StrokeCap.Round
+    )
+
+    // Glow
+    val glowR = ballR * 2f
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                ColorAntennaGlow.copy(alpha = 0.5f),
+                ColorAntennaGlow.copy(alpha = 0f)
+            ),
+            center = Offset(faceCx, ballCy),
+            radius = glowR
+        ),
+        radius = glowR,
+        center = Offset(faceCx, ballCy)
+    )
+
+    // Ball
+    drawCircle(
+        color = ColorAntennaGlow,
+        radius = ballR,
+        center = Offset(faceCx, ballCy)
+    )
+
+    // Highlight
+    val hlR = ballR * 0.3f
+    drawCircle(
+        color = Color.White.copy(alpha = 0.7f),
+        radius = hlR * 0.4f,
+        center = Offset(faceCx - hlR * 0.7f, ballCy - hlR * 1.2f)
+    )
+}
+
 // ─── Eye ──────────────────────────────────────────────────────
 
 private fun DrawScope.drawEye(
@@ -258,6 +387,7 @@ private fun DrawScope.drawEye(
 ) {
     val socketSize = Size(socketW, socketH)
     val socketTopLeft = Offset(eyeCx - socketW / 2f, eyeY - socketH / 2f)
+    val socketRect = androidx.compose.ui.geometry.Rect(socketTopLeft, socketSize)
 
     val lidScale = when (emotion) {
         Emotion.SLEEPY -> 0.35f + blinkAmount * 0.65f
@@ -292,25 +422,28 @@ private fun DrawScope.drawEye(
         )
     }
 
-    // Eyelid
-    if (lidScale > 0.01f) {
-        val lidHeight = socketH * lidScale
-        val lidTop = eyeY - socketH / 2f
-        drawRect(
-            color = ColorFaceFill,
-            topLeft = Offset(eyeCx - socketW / 2f - 4f, lidTop - 4f),
-            size = Size(socketW + 8f, lidHeight + 4f)
-        )
-    }
-
-    // Eye outline
-    if (emotion != Emotion.HAPPY) {
+    // Eye outline — before eyelid so lid covers it when blinking
+    if (emotion != Emotion.HAPPY && lidScale < 0.98f) {
         drawOval(
             color = ColorFaceBorder,
             topLeft = socketTopLeft,
             size = socketSize,
             style = Stroke(width = 3f)
         )
+    }
+
+    // Eyelid — clipped to socket oval so it follows the eye contour
+    if (lidScale > 0.01f) {
+        val lidHeight = socketH * lidScale
+        val lidTop = eyeY - socketH / 2f
+        val ovalPath = Path().apply { addOval(socketRect) }
+        clipPath(ovalPath) {
+            drawRect(
+                color = ColorFaceFillLight,
+                topLeft = Offset(eyeCx - socketW / 2f - 8f, lidTop - 8f),
+                size = Size(socketW + 16f, lidHeight + 8f)
+            )
+        }
     }
 }
 
@@ -322,60 +455,72 @@ private fun DrawScope.drawEyebrow(
     emotion: Emotion,
     left: Boolean
 ) {
-    val sign = if (left) -1f else 1f
     val path = Path()
+    val x0 = eyeCx - halfLen
+    val x1 = eyeCx + halfLen
+    val arch = halfLen * 0.35f
 
     when (emotion) {
         Emotion.HAPPY -> {
-            // Raised, arched up
-            path.moveTo(eyeCx - halfLen, browY + halfLen * 0.15f)
-            path.quadraticBezierTo(
-                eyeCx, browY - halfLen * 0.5f,
-                eyeCx + halfLen, browY + halfLen * 0.15f
+            path.moveTo(x0, browY)
+            path.cubicTo(
+                x0 + halfLen * 0.4f, browY - arch * 1.6f,
+                x1 - halfLen * 0.4f, browY - arch * 1.6f,
+                x1, browY
             )
         }
         Emotion.SAD -> {
-            // Angled down toward center (worried)
-            val innerLow = browY + halfLen * 0.5f
-            path.moveTo(eyeCx - halfLen * sign, browY - halfLen * 0.2f)
-            path.lineTo(eyeCx + halfLen * sign, innerLow)
+            val sign = if (left) 1f else -1f
+            val innerX = if (left) x1 else x0
+            val outerX = if (left) x0 else x1
+            path.moveTo(outerX, browY + halfLen * 0.45f)
+            path.cubicTo(
+                outerX + sign * halfLen * 0.6f, browY + halfLen * 0.2f,
+                innerX - sign * halfLen * 0.6f, browY - halfLen * 0.05f,
+                innerX, browY - halfLen * 0.15f
+            )
         }
         Emotion.SURPRISED -> {
-            // Raised high
-            path.moveTo(eyeCx - halfLen, browY - halfLen * 0.6f)
-            path.quadraticBezierTo(
-                eyeCx, browY - halfLen * 0.8f,
-                eyeCx + halfLen, browY - halfLen * 0.6f
+            val highArch = arch * 1.8f
+            path.moveTo(x0, browY - highArch * 0.7f)
+            path.cubicTo(
+                x0 + halfLen * 0.3f, browY - highArch * 1.1f,
+                x1 - halfLen * 0.3f, browY - highArch * 1.1f,
+                x1, browY - highArch * 0.7f
             )
         }
         Emotion.CURIOUS -> {
-            // One raised (left), one straight (right) — we draw same for both but left is higher
-            val raise = if (left) halfLen * 0.5f else halfLen * 0.05f
-            path.moveTo(eyeCx - halfLen, browY - raise)
-            path.quadraticBezierTo(
-                eyeCx, browY - raise - halfLen * 0.25f,
-                eyeCx + halfLen, browY - raise
+            val raise = if (left) arch * 1.3f else 0f
+            path.moveTo(x0, browY - raise)
+            path.cubicTo(
+                x0 + halfLen * 0.5f, browY - raise - arch * 0.5f,
+                x1 - halfLen * 0.5f, browY - raise - arch * 0.1f,
+                x1, browY - raise * 0.2f
             )
         }
         Emotion.SLEEPY -> {
-            // Drooping, slightly lowered
-            path.moveTo(eyeCx - halfLen, browY + halfLen * 0.1f)
-            path.lineTo(eyeCx + halfLen, browY + halfLen * 0.2f)
+            path.moveTo(x0, browY - arch * 0.2f)
+            path.cubicTo(
+                x0 + halfLen * 0.5f, browY + halfLen * 0.05f,
+                x1 - halfLen * 0.5f, browY + halfLen * 0.15f,
+                x1, browY + halfLen * 0.2f
+            )
         }
         Emotion.SHY -> {
-            // Slight shy arch
-            path.moveTo(eyeCx - halfLen, browY)
-            path.quadraticBezierTo(
-                eyeCx, browY - halfLen * 0.3f,
-                eyeCx + halfLen, browY
+            path.moveTo(x0, browY - arch * 0.3f)
+            path.cubicTo(
+                x0 + halfLen * 0.4f, browY - arch * 1.0f,
+                x1 - halfLen * 0.4f, browY - arch * 1.0f,
+                x1, browY - arch * 0.3f
             )
         }
         else -> {
-            // NEUTRAL: subtle arch
-            path.moveTo(eyeCx - halfLen, browY)
-            path.quadraticBezierTo(
-                eyeCx, browY - halfLen * 0.2f,
-                eyeCx + halfLen, browY
+            // NEUTRAL: gentle natural arch
+            path.moveTo(x0, browY)
+            path.cubicTo(
+                x0 + halfLen * 0.4f, browY - arch,
+                x1 - halfLen * 0.4f, browY - arch,
+                x1, browY
             )
         }
     }
@@ -383,16 +528,20 @@ private fun DrawScope.drawEyebrow(
     drawPath(
         path = path,
         color = ColorEyebrow,
-        style = Stroke(width = EYEBROW_THICKNESS, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        style = Stroke(
+            width = EYEBROW_THICKNESS,
+            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            join = androidx.compose.ui.graphics.StrokeJoin.Round
+        )
     )
 }
 
 // ─── Blush ────────────────────────────────────────────────────
 
-private fun DrawScope.drawBlush(cx: Float, eyeY: Float, eyeW: Float, color: Color) {
+private fun DrawScope.drawBlush(cx: Float, eyeY: Float, eyeW: Float) {
     val blushY = eyeY + eyeW * 0.6f
     drawCircle(
-        color = color,
+        color = ColorBlush,
         radius = eyeW * 0.55f,
         center = Offset(cx, blushY)
     )
@@ -407,61 +556,70 @@ private fun DrawScope.drawMouth(
     isSpeaking: Boolean,
     speakAmount: Float
 ) {
-    val mouthPath = Path()
-    val speakOpen = halfWidth * 0.7f * speakAmount // additional opening when speaking
+    val openRatio = if (isSpeaking) speakAmount else 0f
 
-    when (emotion) {
-        Emotion.HAPPY -> {
-            val yOff = halfWidth * 0.9f + speakOpen * 0.6f
-            mouthPath.moveTo(cx - halfWidth * 1.2f, mouthY)
-            mouthPath.quadraticBezierTo(cx, mouthY + yOff, cx + halfWidth * 1.2f, mouthY)
-        }
-        Emotion.SURPRISED -> {
-            val r = halfWidth * 0.6f + speakOpen
-            mouthPath.addOval(
-                androidx.compose.ui.geometry.Rect(
-                    center = Offset(cx, mouthY + r * 0.3f),
-                    radius = r
-                )
-            )
-        }
-        Emotion.SAD -> {
-            mouthPath.moveTo(cx - halfWidth * 0.8f, mouthY)
-            mouthPath.quadraticBezierTo(
-                cx, mouthY - halfWidth * 0.5f - speakOpen * 0.3f,
-                cx + halfWidth * 0.8f, mouthY
-            )
-        }
-        Emotion.CURIOUS -> {
-            val r = halfWidth * 0.35f + speakOpen * 0.5f
-            drawCircle(ColorMouth, r, Offset(cx, mouthY))
-        }
-        Emotion.SLEEPY -> {
-            val dy = halfWidth * 0.3f + speakOpen * 0.5f
-            mouthPath.moveTo(cx - halfWidth * 0.5f, mouthY)
-            mouthPath.quadraticBezierTo(cx, mouthY + dy, cx + halfWidth * 0.5f, mouthY)
-        }
-        Emotion.SHY -> {
-            val dy = halfWidth * 0.15f + speakOpen * 0.3f
-            mouthPath.moveTo(cx - halfWidth * 0.5f, mouthY)
-            mouthPath.cubicTo(
-                cx - halfWidth * 0.25f, mouthY - dy,
-                cx + halfWidth * 0.25f, mouthY + dy,
-                cx + halfWidth * 0.5f, mouthY
-            )
-        }
-        else -> {
-            val dy = halfWidth * 0.25f + speakOpen * 0.5f
-            mouthPath.moveTo(cx - halfWidth * 0.7f, mouthY)
-            mouthPath.quadraticBezierTo(cx, mouthY + dy, cx + halfWidth * 0.7f, mouthY)
-        }
+    // ── Open mouth (speaking): filled ellipse ──────────────────
+    if (openRatio > 0.15f) {
+        val openW = halfWidth * 0.5f * openRatio
+        val openH = halfWidth * 0.85f * openRatio
+
+        // Outer lip
+        drawOval(
+            color = ColorMouth,
+            topLeft = Offset(cx - openW, mouthY - openH * 0.5f),
+            size = Size(openW * 2f, openH * 1.6f)
+        )
+
+        // Inner dark (depth)
+        val innerW = openW * 0.55f
+        val innerH = openH * 0.5f
+        drawOval(
+            color = ColorPupil.copy(alpha = 0.6f),
+            topLeft = Offset(cx - innerW, mouthY + innerH * 0.3f),
+            size = Size(innerW * 2f, innerH * 1.4f)
+        )
+        return
     }
 
-    val filled = emotion == Emotion.SURPRISED || (isSpeaking && speakAmount > 0.4f)
+    // ── Closed mouth: thin curved line ─────────────────────────
+    val path = Path()
+    val bw: Float
+    val cpY: Float
+
+    when (emotion) {
+        Emotion.HAPPY -> { bw = 1.2f; cpY = halfWidth * 0.9f }
+        Emotion.SAD -> { bw = 0.7f; cpY = -halfWidth * 0.45f }
+        Emotion.SURPRISED -> {
+            val r = halfWidth * 0.35f
+            drawOval(
+                color = ColorMouth,
+                topLeft = Offset(cx - r, mouthY - r * 0.7f),
+                size = Size(r * 2f, r * 2f),
+                style = Stroke(width = 3.5f)
+            )
+            return
+        }
+        Emotion.CURIOUS -> {
+            drawCircle(ColorMouth, halfWidth * 0.35f, Offset(cx, mouthY))
+            return
+        }
+        Emotion.SLEEPY -> { bw = 0.5f; cpY = halfWidth * 0.3f }
+        Emotion.SHY -> { bw = 0.45f; cpY = halfWidth * 0.15f }
+        else -> { bw = 0.65f; cpY = halfWidth * 0.12f }
+    }
+
+    val x0 = cx - halfWidth * bw
+    val x1 = cx + halfWidth * bw
+    path.moveTo(x0, mouthY)
+    path.quadraticBezierTo(cx, mouthY + cpY, x1, mouthY)
+
     drawPath(
-        mouthPath,
-        ColorMouth,
-        style = if (filled) androidx.compose.ui.graphics.drawscope.Fill else Stroke(width = 4f)
+        path = path,
+        color = ColorMouth,
+        style = Stroke(
+            width = 3.5f,
+            cap = androidx.compose.ui.graphics.StrokeCap.Round
+        )
     )
 }
 
@@ -479,11 +637,9 @@ private fun DrawScope.drawListeningIndicator(cx: Float, y: Float) {
     }
 }
 
-/** Thinking indicator — three dots pulsing near top of head */
 private fun DrawScope.drawThinkingIndicator(cx: Float, y: Float) {
     val dotRadius = 5f
     val spacing = 14f
-    // Three dots in a horizontal row
     for (i in -1..1) {
         drawCircle(
             color = ColorMouth.copy(alpha = 0.6f),
@@ -493,27 +649,11 @@ private fun DrawScope.drawThinkingIndicator(cx: Float, y: Float) {
     }
 }
 
-/** Show last user text or response as a subtle bubble below the face */
 private fun DrawScope.drawContextBubble(cx: Float, y: Float, state: RobotState) {
-    // Simple text indicator — just a small colored dot showing "I heard you"
     val active = state.lastUserText != null
     if (active) {
-        val alpha = when (state.mode) {
-            RobotMode.THINKING -> 0.4f
-            RobotMode.SPEAKING -> 0.9f
-            RobotMode.LISTENING -> 0.7f
-            else -> 0.5f
-        }
-        val text = when (state.mode) {
-            RobotMode.LISTENING -> "正在听..."
-            RobotMode.THINKING -> "思考中..."
-            RobotMode.SPEAKING -> "正在说..."
-            else -> ""
-        }
-        // We can't easily draw text in Canvas without TextMeasurer,
-        // but the mode indicator above already shows the state.
-        // Keep a subtle glow ring around the face for thinking/speaking
         if (state.mode == RobotMode.THINKING || state.mode == RobotMode.SPEAKING) {
+            val alpha = if (state.mode == RobotMode.THINKING) 0.4f else 0.9f
             val color = if (state.mode == RobotMode.THINKING)
                 Color(0xFF66AAFF).copy(alpha = alpha)
             else
