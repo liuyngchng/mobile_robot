@@ -55,6 +55,10 @@ ios/Avatar/generate_icon.py
 
 # ── Build output ───────────────────────────────────────
 ios/build/
+android/.gradle/
+android/app/build/
+android/app/.cxx/
+android/local.properties
 
 # ── Models (large files) ───────────────────────────────
 .model_cache/
