@@ -306,7 +306,7 @@ fun RobotFaceScreen(
                     imageVector = Icons.Filled.Settings,
                     contentDescription = "设置",
                     tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(44.dp)
                 )
             }
         }
@@ -333,45 +333,19 @@ fun RobotFaceScreen(
 }
 
 /**
- * Simple ear icon drawn with Canvas — outline when inactive, filled when active.
- * Matches iOS SF Symbol "ear" / "ear.fill" behavior.
+ * Ear icon using vector drawables — matches iOS SF Symbol "ear" / "ear.fill".
  */
 @Composable
 private fun EarIcon(active: Boolean, tint: Color) {
-    Canvas(modifier = Modifier.size(22.dp)) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val r = size.width * 0.42f
-
-        // Ear outer shape: an arc with a small lobe at bottom
-        val path = Path().apply {
-            // Main arc of the ear (left side, curves up and around)
-            arcTo(
-                rect = Rect(
-                    offset = Offset(cx - r * 0.8f, cy - r * 0.9f),
-                    size = Size(r * 1.4f, r * 1.8f)
-                ),
-                startAngleDegrees = 120f,
-                sweepAngleDegrees = -240f,
-                forceMoveTo = true
-            )
-        }
-
-        drawPath(
-            path = path,
-            color = tint,
-            style = Stroke(width = 2.2f, cap = StrokeCap.Round)
-        )
-
-        // Inner fill dot when active
-        if (active) {
-            drawCircle(
-                color = tint,
-                radius = r * 0.22f,
-                center = Offset(cx - r * 0.05f, cy)
-            )
-        }
-    }
+    Icon(
+        painter = androidx.compose.ui.res.painterResource(
+            id = if (active) com.rd.avatar.R.drawable.ic_ear_fill
+                 else com.rd.avatar.R.drawable.ic_ear
+        ),
+        contentDescription = if (active) "关闭唤醒词" else "开启唤醒词",
+        tint = tint,
+        modifier = Modifier.size(44.dp)
+    )
 }
 
 private fun computePupilOffset(

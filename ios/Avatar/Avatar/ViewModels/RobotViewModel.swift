@@ -230,6 +230,8 @@ class RobotViewModel: ObservableObject {
         var silentChunks = 0
         let silenceThreshold: Float = 0.012   // RMS below this = silence
         let maxSilentChunks = 25               // ~2 seconds at ~80ms/chunk
+        let maxRecordSeconds: TimeInterval = 15
+        let startTime = Date()
 
         recordingCancellable = audioRecorder.startRecordingPublisher()
             .sink { [weak self] samples in
@@ -250,15 +252,21 @@ class RobotViewModel: ObservableObject {
                 }
             }
 
-        // VAD auto-stop timer
+        // VAD auto-stop timer (polls for silence trigger OR max duration)
         vadTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self = self, case .listening = self.robotState.mode else { break }
                 try? await Task.sleep(nanoseconds: 100_000_000)
 
-                // Detect: audio recorder stopped but we're still in listening mode
                 // VAD silence triggered the stop
                 if silentChunks >= maxSilentChunks {
+                    self.processRecording()
+                    break
+                }
+                // Max duration force-stop
+                if Date().timeIntervalSince(startTime) >= maxRecordSeconds {
+                    os_log(.info, "RobotVM: max record duration reached, auto-stopping")
+                    self.audioRecorder.stop()
                     self.processRecording()
                     break
                 }
@@ -295,6 +303,7 @@ class RobotViewModel: ObservableObject {
                         self.wakeWordTriggered = false
                         self.wakeWordManager.notifyVoiceFlowDone()
                     }
+                    self.speakText("没听清，请再说一遍")
                     return
                 }
 
@@ -519,6 +528,8 @@ class RobotViewModel: ObservableObject {
     private func stopWakeWordDetection() {
         wakeWordEngine.stop()
         wakeWordManager.setRunning(false)
+        // Restore default audio session to avoid sound routing to earpiece
+        AudioSessionManager.configure()
     }
 
     private func handleKwsDetected(_ keyword: String) {

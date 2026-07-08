@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val VAD_SILENCE_THRESHOLD = 0.012f  // RMS below this = silence
         private const val VAD_MAX_SILENT_CHUNKS = 25       // ~2 seconds at 80ms/chunk
+        private const val MAX_RECORD_SECONDS = 15f         // force-stop if no silence
     }
 
     // LLM integration
@@ -247,6 +248,7 @@ class MainActivity : ComponentActivity() {
                                         mode = if (robotState.faceTargetX != null)
                                             RobotMode.WATCHING else RobotMode.IDLE
                                     )
+                                    speak("没听清，请再说一遍")
                                 }
                             }
 
@@ -352,9 +354,18 @@ class MainActivity : ComponentActivity() {
         isRecording = true
         onSpeechEnd = onResult
         var silentChunks = 0
+        val startTime = System.currentTimeMillis()
 
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
             try {
+                // Max duration timeout: force-stop after MAX_RECORD_SECONDS
+                val timeoutJob = launch {
+                    delay((MAX_RECORD_SECONDS * 1000).toLong())
+                    if (isRecording) {
+                        audioRecorder.stopRecording()
+                    }
+                }
+
                 audioRecorder.startRecording().collect { samples ->
                     asrEngine.acceptWaveform(samples)
 
@@ -366,6 +377,7 @@ class MainActivity : ComponentActivity() {
                     if (rms < VAD_SILENCE_THRESHOLD) {
                         silentChunks++
                         if (silentChunks >= VAD_MAX_SILENT_CHUNKS) {
+                            timeoutJob.cancel()
                             audioRecorder.stopRecording()
                             return@collect // flow completes → finally decodes
                         }
@@ -373,6 +385,7 @@ class MainActivity : ComponentActivity() {
                         silentChunks = maxOf(0, silentChunks - 1)
                     }
                 }
+                timeoutJob.cancel()
             } finally {
                 // Decode ASR result after recording stops (VAD or manual)
                 if (isRecording) {
