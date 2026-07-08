@@ -87,27 +87,42 @@ struct RobotMainScreen: View {
 
                         Spacer()
 
-                        // Bottom: response text (if any)
-                        if let text = viewModel.robotState.responseText,
-                           viewModel.robotState.mode == .speaking || viewModel.robotState.mode == .thinking {
-                            Text(text)
-                                .font(.body)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
-                                .background(Color.black.opacity(0.5))
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .frame(maxHeight: textMaxHeight)
-                                .padding(.bottom, bottomPadding)
-                                .padding(.horizontal, 20)
-                        }
+                        // Bottom: status text (matches Android RobotFaceScreen)
+                        let statusText: String = {
+                            switch viewModel.robotState.mode {
+                            case .listening:
+                                return "聆听中..."
+                            case .thinking:
+                                return "思考中..."
+                            case .speaking:
+                                return viewModel.robotState.responseText ?? ""
+                            case .idle, .watching:
+                                return viewModel.robotState.mode == .watching
+                                    ? "点击我开始说话" : "点击屏幕与我互动"
+                            }
+                        }()
 
-                        // Hint for first-time users
-                        if viewModel.robotState.mode == .idle || viewModel.robotState.mode == .watching {
-                            Text(viewModel.robotState.mode == .watching ? "点击我开始说话" : "点击屏幕与我互动")
-                                .font(.caption)
-                                .foregroundColor(.white.opacity(0.4))
-                                .padding(.bottom, 60)
+                        if !statusText.isEmpty {
+                            let isHint = viewModel.robotState.mode == .idle
+                                       || viewModel.robotState.mode == .watching
+
+                            if isHint {
+                                Text(statusText)
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.4))
+                                    .padding(.bottom, 60)
+                            } else {
+                                Text(statusText)
+                                    .font(.body)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
+                                    .background(Color.black.opacity(0.5))
+                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    .frame(maxHeight: textMaxHeight)
+                                    .padding(.bottom, bottomPadding)
+                                    .padding(.horizontal, 20)
+                            }
                         }
                     }
                 }
