@@ -3,7 +3,11 @@
 //  SiriApp
 //
 //  Audio playback via AVAudioPlayerNode.
-//  Ported from Android: AudioPlayer.kt (AudioTrack MODE_STATIC)
+//  Ported from Android: AudioPlayer.kt (AudioTrack MODE_STREAM)
+//
+//  Sentence-by-sentence streaming: scheduleBuffer plays each chunk,
+//  then the node is stopped to clear residual audio before the next
+//  sentence starts — preventing audio bleed between sentences.
 //
 
 import Foundation
@@ -15,21 +19,21 @@ class AudioPlayer {
     private let playerNode = AVAudioPlayerNode()
 
     private var isPlaying = false
-    private var completionCallback: (() -> Void)?
     private var engineStarted = false
 
     init() {
         engine.attach(playerNode)
     }
 
-    /// Play PCM float samples at given sample rate.
-    /// Calls completion when audio finishes playing.
+    /// Play a single PCM float buffer. Stops any in-progress playback first.
+    /// Calls completion when audio finishes or on error.
     func play(
         pcmFloats: [Float],
         sampleRate: Double = 22050.0,
         completion: (() -> Void)? = nil
     ) {
-        stop()
+        // Stop previous playback and clear any scheduled buffers
+        stopNode()
 
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -42,12 +46,11 @@ class AudioPlayer {
             return
         }
 
-        // Connect with the correct mono format
+        // Connect with correct mono format
         engine.disconnectNodeOutput(playerNode)
         engine.connect(playerNode, to: engine.mainMixerNode, format: format)
 
-        // Start engine lazily — must happen AFTER connect, or the dangling
-        // playerNode will crash AVAudioEngineGraph::Initialize.
+        // Start engine lazily
         if !engineStarted {
             do {
                 try engine.start()
@@ -60,6 +63,86 @@ class AudioPlayer {
             }
         }
 
+        scheduleChunk(pcmFloats: pcmFloats, format: format, completion: completion)
+        os_log(.info, "AudioPlayer: playing %d samples at %.0f Hz", pcmFloats.count, sampleRate)
+    }
+
+    /// Play a sequence of PCM chunks with a clean gap between each.
+    /// After each chunk finishes, the playerNode is stopped to flush residual
+    /// audio before the next chunk starts — prevents audio bleed.
+    func playSequence(
+        chunks: [[Float]],
+        sampleRate: Double = 22050.0,
+        completion: (() -> Void)? = nil
+    ) {
+        stopNode()
+
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: 1,
+            interleaved: false
+        ) else {
+            os_log(.error, "AudioPlayer: failed to create audio format")
+            completion?()
+            return
+        }
+
+        engine.disconnectNodeOutput(playerNode)
+        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
+
+        if !engineStarted {
+            do {
+                try engine.start()
+                engineStarted = true
+            } catch {
+                os_log(.error, "AudioPlayer: engine start failed: %{public}@",
+                       error.localizedDescription)
+                completion?()
+                return
+            }
+        }
+
+        playNextChunk(chunks: chunks, index: 0, format: format, sampleRate: sampleRate, completion: completion)
+    }
+
+    private func playNextChunk(
+        chunks: [[Float]],
+        index: Int,
+        format: AVAudioFormat,
+        sampleRate: Double,
+        completion: (() -> Void)?
+    ) {
+        guard index < chunks.count else {
+            // All chunks played — full stop to release engine
+            stop()
+            completion?()
+            return
+        }
+
+        let chunk = chunks[index]
+        guard !chunk.isEmpty else {
+            playNextChunk(chunks: chunks, index: index + 1, format: format, sampleRate: sampleRate, completion: completion)
+            return
+        }
+
+        scheduleChunk(pcmFloats: chunk, format: format) { [weak self] in
+            guard let self = self else { return }
+            // Stop node between chunks to flush residual audio
+            self.stopNode()
+            // Small gap for natural pause between sentences
+            self.playNextChunk(chunks: chunks, index: index + 1, format: format, sampleRate: sampleRate, completion: completion)
+        }
+    }
+
+    // MARK: - Internals
+
+    /// Schedule a single buffer and start the player node.
+    private func scheduleChunk(
+        pcmFloats: [Float],
+        format: AVAudioFormat,
+        completion: (() -> Void)?
+    ) {
         let frameLength = AVAudioFrameCount(pcmFloats.count)
         guard let buffer = AVAudioPCMBuffer(
             pcmFormat: format,
@@ -71,41 +154,40 @@ class AudioPlayer {
         }
         buffer.frameLength = frameLength
 
-        // Copy float samples to buffer
         if let channelData = buffer.floatChannelData {
             channelData[0].initialize(from: pcmFloats, count: pcmFloats.count)
         }
 
-        self.completionCallback = completion
-        self.isPlaying = true
+        isPlaying = true
 
         playerNode.scheduleBuffer(buffer) { [weak self] in
             DispatchQueue.main.async {
                 self?.isPlaying = false
-                self?.completionCallback?()
-                self?.completionCallback = nil
+                completion?()
             }
         }
 
         playerNode.play()
-        os_log(.info, "AudioPlayer: playing %d samples at %.0f Hz", pcmFloats.count, sampleRate)
     }
 
-    /// Stop playback immediately.
-    /// Also stops the underlying AVAudioEngine so other components (e.g.,
-    /// AudioRecorder) can start their own engine without conflict.
-    func stop() {
+    /// Stop the player node without tearing down the engine.
+    /// This clears all scheduled buffers — the iOS equivalent of AudioTrack.flush().
+    private func stopNode() {
         if playerNode.isPlaying {
             playerNode.stop()
         }
+        isPlaying = false
+    }
+
+    /// Full stop — tears down engine so other components can start theirs.
+    func stop() {
+        stopNode()
         engine.disconnectNodeOutput(playerNode)
         if engine.isRunning {
             engine.stop()
             engineStarted = false
         }
         isPlaying = false
-        completionCallback?()
-        completionCallback = nil
     }
 
     var isCurrentlyPlaying: Bool {

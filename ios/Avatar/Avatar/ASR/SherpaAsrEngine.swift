@@ -54,14 +54,14 @@ class SherpaAsrEngine {
         let modelPtr = strdup(modelPath)
         let langPtr = strdup("auto")
         let tokensPtr = strdup(tokensPath)
-        let providerPtr = strdup("cpu")
+        let providerPtr = strdup("xnnpack")
         let decodingPtr = strdup("greedy_search")
 
         config.model_config.sense_voice.model = UnsafePointer(modelPtr)
         config.model_config.sense_voice.language = UnsafePointer(langPtr)
         config.model_config.sense_voice.use_itn = 1
         config.model_config.tokens = UnsafePointer(tokensPtr)
-        config.model_config.num_threads = 4
+        config.model_config.num_threads = 2  // adaptive: low-end devices use 2
         config.model_config.provider = UnsafePointer(providerPtr)
         config.decoding_method = UnsafePointer(decodingPtr)
 

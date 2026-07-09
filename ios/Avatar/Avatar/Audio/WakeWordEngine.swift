@@ -75,7 +75,7 @@ class WakeWordEngine {
         let decoderPtr = strdup(decoder)
         let joinerPtr = strdup(joiner)
         let tokensPtr = strdup(tokens)
-        let providerPtr = strdup("cpu")
+        let providerPtr = strdup("xnnpack")
         let keywordsPtr = strdup(keywordsText)
 
         config.model_config.transducer.encoder = UnsafePointer(encoderPtr)
@@ -86,7 +86,7 @@ class WakeWordEngine {
         config.model_config.provider = UnsafePointer(providerPtr)
         config.model_config.debug = 0
 
-        config.max_active_paths = 4
+        config.max_active_paths = 2  // reduced from 4: wake word needs fewer paths
         config.keywords_score = 3.0
         config.keywords_threshold = 0.05
         config.keywords_buf = UnsafePointer(keywordsPtr)
@@ -319,11 +319,11 @@ class WakeWordEngine {
     // MARK: - Helpers
 
     private static func rms(_ samples: [Float]) -> Float {
-        var sum: Double = 0
+        var sum: Float = 0
         for s in samples {
-            sum += Double(s) * Double(s)
+            sum += s * s
         }
-        return Float(sqrt(sum / Double(samples.count)))
+        return sqrt(sum / Float(samples.count))
     }
 
     private func convert(buffer: AVAudioPCMBuffer, using converter: AVAudioConverter) -> AVAudioPCMBuffer? {

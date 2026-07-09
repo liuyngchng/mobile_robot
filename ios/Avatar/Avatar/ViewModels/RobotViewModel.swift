@@ -421,40 +421,30 @@ class RobotViewModel: ObservableObject {
         let sentences = TextNormalizer.splitSentences(text)
         let sr = ttsEngine.sampleRate
 
-        let merged: [Float] = await Task.detached(priority: .userInitiated) {
-            let silenceSamples = Int(0.3 * Double(sr))
-            var allSamples: [Float] = []
-
+        // Synthesize each sentence into a separate chunk.
+        // Each chunk is played independently; the playerNode is stopped
+        // between chunks to flush residual audio — no bleed.
+        let chunks: [[Float]] = await Task.detached(priority: .userInitiated) {
+            var results: [[Float]] = []
             for sentence in sentences {
                 if Task.isCancelled { break }
                 let normalized = TextNormalizer.normalize(sentence)
                 guard normalized.isNotBlank else { continue }
-
                 if let pcm = await self.ttsEngine.synthesize(text: normalized) {
-                    allSamples.append(contentsOf: pcm)
-                    allSamples.append(contentsOf: Array(repeating: 0, count: silenceSamples))
+                    results.append(pcm)
                 }
             }
-
-            let fadeLen = min(Int(0.01 * Double(sr)), allSamples.count)
-            if fadeLen > 0 {
-                for i in 0..<fadeLen {
-                    let idx = allSamples.count - fadeLen + i
-                    let gain = Float(fadeLen - i) / Float(fadeLen)
-                    allSamples[idx] *= gain
-                }
-            }
-
-            return allSamples
+            return results
         }.value
 
-        guard !merged.isEmpty else {
+        guard !chunks.isEmpty else {
             finishSpeaking(prevMode: prevMode)
             return
         }
 
+        // playSequence: each chunk scheduled → played → node stopped (flush) → next chunk
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            self.audioPlayer.play(pcmFloats: merged, sampleRate: Double(sr)) {
+            self.audioPlayer.playSequence(chunks: chunks, sampleRate: Double(sr)) {
                 cont.resume()
             }
         }
@@ -684,11 +674,11 @@ class RobotViewModel: ObservableObject {
     }
 
     private static func rms(_ samples: [Float]) -> Float {
-        var sum: Double = 0
+        var sum: Float = 0
         for s in samples {
-            sum += Double(s) * Double(s)
+            sum += s * s
         }
-        return Float(sqrt(sum / Double(samples.count)))
+        return sqrt(sum / Float(samples.count))
     }
 
     deinit {

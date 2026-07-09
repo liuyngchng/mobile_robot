@@ -60,7 +60,7 @@ class SherpaTtsEngine {
         let vcPtr = strdup(vcPath)
         let tkPtr = strdup(tkPath)
         let lxPtr = strdup(lxPath)
-        let providerPtr = strdup("cpu")
+        let providerPtr = strdup("xnnpack")
 
         config.model.matcha.acoustic_model = UnsafePointer(acPtr)
         config.model.matcha.vocoder = UnsafePointer(vcPtr)
@@ -68,9 +68,9 @@ class SherpaTtsEngine {
         config.model.matcha.lexicon = UnsafePointer(lxPtr)
         config.model.matcha.noise_scale = 0.667
         config.model.matcha.length_scale = 1.0
-        config.model.num_threads = 4
+        config.model.num_threads = 2  // adaptive: low-end devices use 2
         config.model.provider = UnsafePointer(providerPtr)
-        config.max_num_sentences = 2
+        config.max_num_sentences = 1  // one sentence at a time for streaming
 
         tts = SherpaOnnxCreateOfflineTts(&config)
 

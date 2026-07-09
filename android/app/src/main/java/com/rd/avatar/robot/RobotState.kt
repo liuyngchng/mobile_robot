@@ -36,6 +36,7 @@ enum class Emotion(val intensity: Float) {
 /**
  * Current robot state, consumed by UI and behavior engine.
  */
+@androidx.compose.runtime.Stable
 data class RobotState(
     val mode: RobotMode = RobotMode.IDLE,
 

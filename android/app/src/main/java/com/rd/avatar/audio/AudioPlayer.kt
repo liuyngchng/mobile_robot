@@ -4,34 +4,36 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
+import kotlinx.coroutines.withTimeout
 
 class AudioPlayer {
 
     companion object {
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_MONO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        private const val TIMEOUT_GRACE_MS = 2000L  // extra time beyond expected duration
     }
 
     private var activeTrack: AudioTrack? = null
-    private var isPlaying = false
+    @Volatile private var isPlaying = false
 
     /**
-     * Play PCM float audio. Creates a fresh AudioTrack per sentence.
+     * Play PCM float audio using MODE_STREAM with chunked writes.
+     * Each call creates a fresh AudioTrack, writes all data, waits for completion,
+     * then stops + flushes to clear the internal buffer — ensuring no residual
+     * audio bleeds into the next sentence.
      */
     suspend fun play(pcmFloats: FloatArray, sampleRate: Int = 22050) = withContext(Dispatchers.IO) {
+        // Convert float → short (on IO thread to avoid blocking caller)
         val shortSamples = ShortArray(pcmFloats.size) { i ->
             (pcmFloats[i] * Short.MAX_VALUE).toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                 .toShort()
         }
 
-        val bufferSizeInBytes = maxOf(
-            shortSamples.size * 2,
-            AudioTrack.getMinBufferSize(sampleRate, CHANNEL_CONFIG, AUDIO_FORMAT)
-        )
+        val minBufSize = AudioTrack.getMinBufferSize(sampleRate, CHANNEL_CONFIG, AUDIO_FORMAT)
+        val bufferSizeInBytes = maxOf(minBufSize, 4096)
 
         val track = AudioTrack.Builder()
             .setAudioAttributes(
@@ -48,84 +50,81 @@ class AudioPlayer {
                     .build()
             )
             .setBufferSizeInBytes(bufferSizeInBytes)
-            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setTransferMode(AudioTrack.MODE_STREAM)  // stream: feed incrementally
             .build()
 
         activeTrack = track
         isPlaying = true
 
         try {
-            track.write(shortSamples, 0, shortSamples.size)
             track.play()
-            awaitPlaybackComplete(track, shortSamples.size, sampleRate)
+
+            // Write in chunks so we don't overflow the internal buffer.
+            // Each chunk = half the buffer size (in shorts).
+            val chunkSize = maxOf(bufferSizeInBytes / 2, 1024)
+            var offset = 0
+            while (offset < shortSamples.size && isPlaying) {
+                val remaining = shortSamples.size - offset
+                val toWrite = minOf(remaining, chunkSize)
+                track.write(shortSamples, offset, toWrite)
+                offset += toWrite
+            }
+
+            // Wait until all written data has been played out
+            val durationMs = (shortSamples.size.toLong() * 1000) / sampleRate
+            val timeoutMs = durationMs + TIMEOUT_GRACE_MS
+            awaitPlaybackComplete(track, shortSamples.size, sampleRate, timeoutMs)
         } finally {
             isPlaying = false
             activeTrack = null
+            try { track.stop() } catch (_: Exception) {}
+            track.flush()   // ← CRITICAL: clear residual audio so next sentence starts clean
             track.release()
         }
     }
 
     /**
-     * Wait for playback to complete using [AudioTrack.setPlaybackPositionUpdateListener].
-     * Falls back to a duration-based timeout if the listener doesn't fire.
+     * Block until playback reaches [frameCount] (end of audio), or [timeoutMs] elapses.
+     * Uses [AudioTrack.playbackHeadPosition] polling instead of a dedicated timeout thread.
      */
     private suspend fun awaitPlaybackComplete(
         track: AudioTrack,
         frameCount: Int,
-        sampleRate: Int
-    ) = suspendCancellableCoroutine<Unit> { cont ->
+        sampleRate: Int,
+        timeoutMs: Long
+    ) {
         val durationMs = (frameCount.toLong() * 1000) / sampleRate
-        val timeoutMs = durationMs + 1000
-
-        track.setPlaybackPositionUpdateListener(
-            object : AudioTrack.OnPlaybackPositionUpdateListener {
-                override fun onMarkerReached(track: AudioTrack) {
-                    if (cont.isActive) cont.resume(Unit)
+        try {
+            withTimeout(timeoutMs) {
+                // Poll playback head position every ~20ms.
+                // playState check catches early errors (e.g. AudioTrack died).
+                while (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    val headPos = track.playbackHeadPosition
+                    if (headPos >= frameCount) break
+                    // kotlinx.coroutines.delay is cancellable — timeout cancels it cleanly
+                    kotlinx.coroutines.delay(20)
                 }
-
-                override fun onPeriodicNotification(track: AudioTrack) {}
             }
-        )
-
-        // Set marker at end of audio data
-        track.notificationMarkerPosition = frameCount
-
-        // Timeout guard: if the listener doesn't fire, resume after expected duration + 1s.
-        // Daemon thread so it won't block JVM shutdown.
-        val timeoutThread = Thread({
-            try {
-                Thread.sleep(timeoutMs)
-            } catch (_: InterruptedException) {
-                return@Thread
-            }
-            if (cont.isActive) {
-                try { track.stop() } catch (_: Exception) {}
-                cont.resume(Unit)
-            }
-        }, "AudioPlayTimeout").apply { isDaemon = true }
-        timeoutThread.start()
-
-        cont.invokeOnCancellation {
-            timeoutThread.interrupt()
-            track.setPlaybackPositionUpdateListener(null)
-            try { track.stop() } catch (_: Exception) {}
+        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+            // Playback exceeded expected duration — stop gracefully
         }
     }
 
     fun stop() {
         isPlaying = false
         activeTrack?.apply {
-            setPlaybackPositionUpdateListener(null)
             if (playState == AudioTrack.PLAYSTATE_PLAYING) {
-                stop()
+                try { stop() } catch (_: Exception) {}
             }
+            flush()  // clear buffer even on manual stop
         }
     }
 
     fun release() {
         isPlaying = false
         activeTrack?.apply {
-            setPlaybackPositionUpdateListener(null)
+            try { stop() } catch (_: Exception) {}
+            flush()
             release()
         }
         activeTrack = null

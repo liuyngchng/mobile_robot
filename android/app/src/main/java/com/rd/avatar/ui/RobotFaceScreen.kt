@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.StrokeCap
@@ -123,8 +124,8 @@ fun RobotFaceScreen(
     LaunchedEffect(state.isSpeaking) {
         if (state.isSpeaking) {
             while (isActive) {
-                speakMouth.animateTo(1f, tween(120))
-                speakMouth.animateTo(0.2f, tween(120))
+                speakMouth.animateTo(1f, tween(180))  // ~5.5 Hz, easy on GPU
+                speakMouth.animateTo(0.2f, tween(180))
             }
         } else {
             speakMouth.snapTo(0f)
@@ -134,8 +135,8 @@ fun RobotFaceScreen(
     LaunchedEffect(state.mode) {
         if (state.mode == RobotMode.THINKING) {
             while (isActive) {
-                thinkPhase.animateTo(1f, tween(800, easing = FastOutSlowInEasing))
-                thinkPhase.animateTo(-1f, tween(800, easing = FastOutSlowInEasing))
+                thinkPhase.animateTo(1f, tween(1000, easing = FastOutSlowInEasing))
+                thinkPhase.animateTo(-1f, tween(1000, easing = FastOutSlowInEasing))
             }
         } else {
             thinkPhase.snapTo(0f)
@@ -145,8 +146,8 @@ fun RobotFaceScreen(
     LaunchedEffect(state.mode) {
         if (state.mode == RobotMode.LISTENING) {
             while (isActive) {
-                listenPulse.animateTo(1f, tween(350))
-                listenPulse.animateTo(0.2f, tween(350))
+                listenPulse.animateTo(1f, tween(450))
+                listenPulse.animateTo(0.2f, tween(450))
             }
         } else {
             listenPulse.snapTo(0f)
@@ -161,6 +162,7 @@ fun RobotFaceScreen(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = 0.99f }  // isolate to own render layer, skip parent invalidation
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = { onTap() })
                 }

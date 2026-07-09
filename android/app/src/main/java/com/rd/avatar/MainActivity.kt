@@ -416,19 +416,24 @@ class MainActivity : ComponentActivity() {
         audioRecorder.stopRecording()
     }
 
-    // ── TTS playback ──────────────────────────────────────────────────
+    // ── TTS playback (sentence-by-sentence streaming) ─────────────────
 
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         if (!ttsReady) return
-        val normalized = TextNormalizer.normalize(text)
+        val sentences = TextNormalizer.splitSentences(text)
         CoroutineScope(Dispatchers.IO).launch {
-            val audio = ttsEngine.synthesize(normalized)
-            if (audio != null) {
-                audioPlayer.play(audio, ttsEngine.getSampleRate())
-                onDone?.let { withContext(Dispatchers.Main) { it() } }
-            } else {
-                onDone?.let { withContext(Dispatchers.Main) { it() } }
+            val sr = ttsEngine.getSampleRate()
+            for (sentence in sentences) {
+                val normalized = TextNormalizer.normalize(sentence)
+                if (normalized.isBlank()) continue
+                val audio = ttsEngine.synthesize(normalized)
+                if (audio != null) {
+                    // play() internally: write → wait → stop() → flush() → release()
+                    // flush() clears residual audio so next sentence starts clean.
+                    audioPlayer.play(audio, sr)
+                }
             }
+            onDone?.let { withContext(Dispatchers.Main) { it() } }
         }
     }
 

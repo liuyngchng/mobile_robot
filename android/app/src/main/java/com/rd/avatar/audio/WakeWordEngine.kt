@@ -224,11 +224,11 @@ class WakeWordEngine(private val context: Context) {
     }
 
     private fun rms(samples: FloatArray, n: Int): Float {
-        var sum = 0.0
+        var sum = 0f
         for (i in 0 until n) {
-            sum += samples[i].toDouble() * samples[i]
+            sum += samples[i] * samples[i]
         }
-        return sqrt(sum / n).toFloat()
+        return sqrt(sum / n)
     }
 
     // ── Native methods ──────────────────────────────────────────────────────
