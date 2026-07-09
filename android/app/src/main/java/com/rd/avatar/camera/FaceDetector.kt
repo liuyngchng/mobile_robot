@@ -55,6 +55,14 @@ class FaceDetector(private val appContext: android.content.Context) {
     private val visionFrameInterval = 4
     private var frameCounter = 0
 
+    /** Adaptive detection: when no face is detected for 5 seconds, increase the
+     *  frame skip to 20 (≈1.5 Hz detection) to save CPU/GPU. Restore to 4 when
+     *  a face reappears. */
+    private var lastFaceTime = 0L
+    private var lowFreqMode = false
+    private val lowFreqThresholdMs = 5000L
+    private val lowFreqFrameInterval = 20
+
     private val faceDetector by lazy {
         val options = FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
@@ -95,9 +103,11 @@ class FaceDetector(private val appContext: android.content.Context) {
     }
 
     private fun analyzeFrame(imageProxy: ImageProxy) {
-        // Throttle: only run ML Kit detection every N frames
+        // Throttle: only run ML Kit detection every N frames.
+        // In low-frequency mode (no face for 5+ seconds), skip more frames.
         frameCounter++
-        if (frameCounter % visionFrameInterval != 0) {
+        val interval = if (lowFreqMode) lowFreqFrameInterval else visionFrameInterval
+        if (frameCounter % interval != 0) {
             imageProxy.close()
             return
         }
@@ -112,10 +122,19 @@ class FaceDetector(private val appContext: android.content.Context) {
         faceDetector.process(inputImage)
             .addOnSuccessListener { faces ->
                 if (faces.isNotEmpty()) {
+                    lastFaceTime = System.currentTimeMillis()
+                    if (lowFreqMode) {
+                        lowFreqMode = false
+                    }
                     val face = faces.first()
                     val result = toDetectionResult(face, imageProxy.width, imageProxy.height)
                     _faces.value = result
                 } else {
+                    // Adaptive: if no face for too long, reduce detection frequency
+                    if (!lowFreqMode &&
+                        System.currentTimeMillis() - lastFaceTime > lowFreqThresholdMs) {
+                        lowFreqMode = true
+                    }
                     _faces.value = null
                 }
             }

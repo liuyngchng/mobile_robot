@@ -38,6 +38,13 @@ class FaceDetector: NSObject, ObservableObject {
     private let visionFrameInterval = 4
     private var frameCounter = 0
 
+    /// Adaptive frame rate: when no face is detected for this many seconds,
+    /// drop the camera to 5 fps to save power. Restore to 30 fps as soon as
+    /// a face reappears.
+    private let lowFpsThreshold: CFTimeInterval = 5.0
+    private var lastFaceTime: CFTimeInterval = 0
+    private var lowFpsMode = false
+
     /// Smoothing: keep a rolling window of recent emotions to avoid jitter.
     private let emotionWindowSize = 5
     private var emotionWindow: [Emotion?] = []
@@ -116,6 +123,58 @@ class FaceDetector: NSObject, ObservableObject {
             os_log(.info, "FaceDetector: stopped")
         }
     }
+
+    // MARK: - Adaptive Frame Rate
+
+    /// Drop the camera to 5 fps when no face has been detected for a while.
+    /// Camera sensor + ISP are the #1 power consumer; 5 fps is plenty for
+    /// "is someone there?" detection while dramatically reducing energy use.
+    private func switchToLowFps() {
+        guard !lowFpsMode else { return }
+        lowFpsMode = true
+
+        sessionQueue.async { [weak self] in
+            guard let self = self,
+                  let device = self.session.inputs
+                    .compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first else { return }
+
+            do {
+                try device.lockForConfiguration()
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 5)
+                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 5)
+                device.unlockForConfiguration()
+                os_log(.info, "FaceDetector: switched to low-power 5 fps")
+            } catch {
+                os_log(.error, "FaceDetector: failed to set low fps: %{public}@",
+                       error.localizedDescription)
+                self.lowFpsMode = false
+            }
+        }
+    }
+
+    /// Restore the camera to 30 fps when a face reappears.
+    private func switchToNormalFps() {
+        guard lowFpsMode else { return }
+        lowFpsMode = false
+
+        sessionQueue.async { [weak self] in
+            guard let self = self,
+                  let device = self.session.inputs
+                    .compactMap({ ($0 as? AVCaptureDeviceInput)?.device }).first else { return }
+
+            do {
+                try device.lockForConfiguration()
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+                device.unlockForConfiguration()
+                os_log(.info, "FaceDetector: restored to 30 fps")
+            } catch {
+                os_log(.error, "FaceDetector: failed to set normal fps: %{public}@",
+                       error.localizedDescription)
+                self.lowFpsMode = true
+            }
+        }
+    }
 }
 
 // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
@@ -127,9 +186,11 @@ extension FaceDetector: AVCaptureVideoDataOutputSampleBufferDelegate {
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        // Throttle: only run Vision detection every N frames
+        // Throttle: only run Vision detection every N frames.
+        // In low-power mode (5 fps camera), run on every frame.
         frameCounter += 1
-        if frameCounter % visionFrameInterval != 0 { return }
+        let interval = lowFpsMode ? 1 : visionFrameInterval
+        if frameCounter % interval != 0 { return }
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
@@ -145,7 +206,18 @@ extension FaceDetector: AVCaptureVideoDataOutputSampleBufferDelegate {
 
             guard let results = request.results as? [VNFaceObservation], !results.isEmpty else {
                 self._faces.send(nil)
+                // Adaptive frame rate: if no face for too long, drop camera to 5 fps.
+                let now = CACurrentMediaTime()
+                if !self.lowFpsMode && now - self.lastFaceTime > self.lowFpsThreshold {
+                    self.switchToLowFps()
+                }
                 return
+            }
+
+            // Face detected — reset the idle timer and restore full frame rate.
+            self.lastFaceTime = CACurrentMediaTime()
+            if self.lowFpsMode {
+                self.switchToNormalFps()
             }
 
             // Take the most prominent face
