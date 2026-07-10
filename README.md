@@ -28,7 +28,7 @@ App 内置模型管理界面，可以从手机上传/解压模型文件。需要
 | 模型 | 用途 | 大小 |
 |------|------|------|
 | SenseVoiceSmall | 语音识别 (ASR) | ~158MB |
-| Matcha-TTS + vocos | 语音合成 (TTS) | ~123MB |
+| VITS-aishell3 | 语音合成 (TTS) | ~116MB |
 | Zipformer KWS | 唤醒词 | ~13MB |
 
 ### 3. 在手机上运行
@@ -50,7 +50,7 @@ App 内置模型管理界面，可以从手机上传/解压模型文件。需要
 | **UI** | SwiftUI + UIKit (Core Graphics 绘制脸部) |
 | **人脸检测** | AVFoundation + Vision (`VNDetectFaceLandmarksRequest`) |
 | **语音识别** | sherpa-onnx SenseVoiceSmall (离线) |
-| **语音合成** | sherpa-onnx Matcha-TTS (离线) |
+| **语音合成** | sherpa-onnx VITS (离线) |
 | **唤醒词** | sherpa-onnx Zipformer KWS (离线) |
 | **对话** | LLM API（可配置 OpenAI / Claude / 本地模型） |
 | **最低系统** | iOS 14.0 |

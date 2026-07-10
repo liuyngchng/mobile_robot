@@ -24,13 +24,13 @@ object ModelManager {
     const val KWS_MODEL_DIR = "kws"
 
     private val ASR_REQUIRED = listOf("model.int8.onnx", "tokens.txt")
-    private val TTS_REQUIRED = listOf("model.onnx", "vocos.onnx", "tokens.txt", "lexicon.txt")
+    private val TTS_REQUIRED = listOf("model.onnx", "tokens.txt", "lexicon.txt")
     private val KWS_REQUIRED = listOf("encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
 
     // Normalize well-known file names after extraction
     private val RENAME_MAP = mapOf(
         "model-steps-3.onnx" to "model.onnx",
-        "vocos-22khz-univ.onnx" to "vocos.onnx",
+        "vits-aishell3.onnx" to "model.onnx",
         // KWS model: use standard short names
         "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx" to "encoder.onnx",
         "decoder-epoch-12-avg-2-chunk-16-left-64.onnx" to "decoder.onnx",
@@ -41,9 +41,7 @@ object ModelManager {
     private const val ASR_DOWNLOAD_URL =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2"
     private const val TTS_DOWNLOAD_URL =
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-baker.tar.bz2"
-    private const val VOCODER_DOWNLOAD_URL =
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx"
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-aishell3.tar.bz2"
     private const val KWS_DOWNLOAD_URL =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2"
 
@@ -73,9 +71,6 @@ object ModelManager {
         listOf("tokens.txt", "lexicon.txt").all {
             File(modelsDir(context), "$TTS_MODEL_DIR/$it").exists()
         }
-
-    fun checkVocoderReady(context: Context): Boolean =
-        File(modelsDir(context), "$TTS_MODEL_DIR/vocos.onnx").exists()
 
     fun checkKwsReady(context: Context): Boolean =
         KWS_REQUIRED.all { File(modelsDir(context), "$KWS_MODEL_DIR/$it").exists() }
@@ -177,38 +172,6 @@ object ModelManager {
         }
     }
 
-    fun copyVocoder(
-        context: Context,
-        uri: Uri,
-        onProgress: (Float) -> Unit
-    ): Result<Unit> {
-        return try {
-            val destDir = File(modelsDir(context), TTS_MODEL_DIR)
-            destDir.mkdirs()
-            val totalSize = getSize(context, uri)
-            var bytesRead = 0L
-            val destFile = File(destDir, "vocos.onnx")
-
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(destFile).use { fos ->
-                    val buf = ByteArray(8192)
-                    var len: Int
-                    while (input.read(buf).also { len = it } != -1) {
-                        fos.write(buf, 0, len)
-                        bytesRead += len
-                        if (totalSize > 0) onProgress(bytesRead.toFloat() / totalSize)
-                    }
-                }
-            } ?: return Result.failure(Exception("无法打开文件"))
-
-            Log.i(TAG, "Vocoder copied to ${destFile.absolutePath}")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Vocoder copy failed", e)
-            Result.failure(e)
-        }
-    }
-
     // ---- Download methods ----
 
     fun downloadAndExtractAsr(context: Context, onProgress: (Float) -> Unit): Result<Unit> {
@@ -258,36 +221,7 @@ object ModelManager {
         }
     }
 
-    fun downloadVocoder(context: Context, onProgress: (Float) -> Unit): Result<Unit> {
-        return try {
-            downloadAndCopyVocoder(context, onProgress)
-        } catch (e: Exception) {
-            Log.e(TAG, "Vocoder download failed", e)
-            Result.failure(e)
-        }
-    }
-
     // ---- Private helpers ----
-
-    private fun downloadAndCopyVocoder(context: Context, onProgress: (Float) -> Unit): Result<Unit> {
-        return try {
-            val tmpFile = File(context.cacheDir, "vocos-22khz-univ.onnx")
-            downloadFile(VOCODER_DOWNLOAD_URL, tmpFile) { p -> onProgress(p * 0.8f) }
-
-            val destDir = File(modelsDir(context), TTS_MODEL_DIR)
-            destDir.mkdirs()
-            val destFile = File(destDir, "vocos.onnx")
-            tmpFile.copyTo(destFile, overwrite = true)
-            tmpFile.delete()
-
-            Log.i(TAG, "Vocoder downloaded to ${destFile.absolutePath}")
-            onProgress(1f)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Vocoder download failed", e)
-            Result.failure(e)
-        }
-    }
 
     private fun downloadFile(url: String, dest: File, onProgress: (Float) -> Unit) {
         val request = Request.Builder().url(url).build()

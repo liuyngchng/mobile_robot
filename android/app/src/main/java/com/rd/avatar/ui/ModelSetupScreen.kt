@@ -39,22 +39,18 @@ fun ModelSetupScreen(
     val scope = rememberCoroutineScope()
 
     val asrReady = ModelManager.checkAsrReady(context)
-    val ttsTarReady = ModelManager.checkTtsExtracted(context)
-    val vocoderReady = ModelManager.checkVocoderReady(context)
+    val ttsReady = ModelManager.checkTtsReady(context)
     val kwsReady = ModelManager.checkKwsReady(context)
 
     var asrOk by remember { mutableStateOf(asrReady) }
-    var ttsTarOk by remember { mutableStateOf(ttsTarReady) }
-    var vocoderOk by remember { mutableStateOf(vocoderReady) }
+    var ttsOk by remember { mutableStateOf(ttsReady) }
     var kwsOk by remember { mutableStateOf(kwsReady) }
 
     var asrSlot by remember { mutableStateOf(SlotState()) }
     var ttsSlot by remember { mutableStateOf(SlotState()) }
-    var vocoderSlot by remember { mutableStateOf(SlotState()) }
     var kwsSlot by remember { mutableStateOf(SlotState()) }
 
-    val anyExtracting = asrSlot.extracting || ttsSlot.extracting || vocoderSlot.extracting || kwsSlot.extracting
-    val ttsOk = ttsTarOk && vocoderOk
+    val anyExtracting = asrSlot.extracting || ttsSlot.extracting || kwsSlot.extracting
     val allReady = asrOk && ttsOk
 
     // ---- ASR picker ----
@@ -90,28 +86,8 @@ fun ModelSetupScreen(
                     }
                 }
                 result.fold(
-                    onSuccess = { ttsTarOk = ModelManager.checkTtsExtracted(context); ttsSlot = SlotState() },
+                    onSuccess = { ttsOk = ModelManager.checkTtsReady(context); ttsSlot = SlotState() },
                     onFailure = { e -> ttsSlot = SlotState(error = "解压失败: ${e.message}") }
-                )
-            }
-        }
-    }
-
-    // ---- Vocoder picker ----
-    val vocoderPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let {
-            scope.launch {
-                vocoderSlot = SlotState(extracting = true)
-                val result = withContext(Dispatchers.IO) {
-                    ModelManager.copyVocoder(context, it) { p ->
-                        vocoderSlot = SlotState(extracting = true, progress = p)
-                    }
-                }
-                result.fold(
-                    onSuccess = { vocoderOk = ModelManager.checkVocoderReady(context); vocoderSlot = SlotState() },
-                    onFailure = { e -> vocoderSlot = SlotState(error = "复制失败: ${e.message}") }
                 )
             }
         }
@@ -162,23 +138,8 @@ fun ModelSetupScreen(
                 }
             }
             result.fold(
-                onSuccess = { ttsTarOk = ModelManager.checkTtsExtracted(context); ttsSlot = SlotState() },
+                onSuccess = { ttsOk = ModelManager.checkTtsReady(context); ttsSlot = SlotState() },
                 onFailure = { e -> ttsSlot = SlotState(error = "下载失败: ${e.message}") }
-            )
-        }
-    }
-
-    fun downloadVocoder() {
-        scope.launch {
-            vocoderSlot = SlotState(extracting = true)
-            val result = withContext(Dispatchers.IO) {
-                ModelManager.downloadVocoder(context) { p ->
-                    vocoderSlot = SlotState(extracting = true, progress = p)
-                }
-            }
-            result.fold(
-                onSuccess = { vocoderOk = ModelManager.checkVocoderReady(context); vocoderSlot = SlotState() },
-                onFailure = { e -> vocoderSlot = SlotState(error = "下载失败: ${e.message}") }
             )
         }
     }
@@ -258,22 +219,13 @@ fun ModelSetupScreen(
                 onDownload = { downloadAsr() }
             )
 
-            // TTS model slot
+            // TTS model slot (VITS single-file model)
             ModelSlotCard(
-                label = "TTS 模型",
-                isReady = ttsTarOk,
+                label = "TTS 模型 (VITS)",
+                isReady = ttsOk,
                 slot = ttsSlot,
                 onSelect = { ttsPicker.launch(arrayOf("application/x-tar", "application/octet-stream")) },
                 onDownload = { downloadTts() }
-            )
-
-            // Vocoder slot
-            ModelSlotCard(
-                label = "Vocoder",
-                isReady = vocoderOk,
-                slot = vocoderSlot,
-                onSelect = { vocoderPicker.launch(arrayOf("application/octet-stream", "*/*")) },
-                onDownload = { downloadVocoder() }
             )
 
             // Section: 可选 — KWS 唤醒词模型

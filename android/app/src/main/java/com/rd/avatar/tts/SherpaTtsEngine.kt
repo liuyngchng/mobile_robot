@@ -9,10 +9,10 @@ class SherpaTtsEngine(private val context: Context) {
     companion object {
         private const val TAG = "RobotCompanion"
         private const val MODEL_DIR = "models/tts"
-        private const val ACOUSTIC_MODEL = "model.onnx"
-        private const val VOCODER_MODEL = "vocos.onnx"
+        private const val VITS_MODEL = "model.onnx"
         private const val TOKENS_FILE = "tokens.txt"
         private const val LEXICON_FILE = "lexicon.txt"
+        private const val DATA_DIR = "espeak-ng-data"  // optional, for better pronunciation
 
         const val DEFAULT_SPEED = 1.0f
         const val DEFAULT_SAMPLE_RATE = 22050
@@ -25,24 +25,24 @@ class SherpaTtsEngine(private val context: Context) {
         if (isInitialized) return true
 
         val modelDir = File(context.filesDir, MODEL_DIR)
-        val acousticModel = File(modelDir, ACOUSTIC_MODEL)
-        val vocoder = File(modelDir, VOCODER_MODEL)
+        val model = File(modelDir, VITS_MODEL)
         val tokens = File(modelDir, TOKENS_FILE)
         val lexicon = File(modelDir, LEXICON_FILE)
+        val dataDir = File(modelDir, DATA_DIR)
 
-        if (!acousticModel.exists() || !vocoder.exists() || !tokens.exists() || !lexicon.exists()) {
+        if (!model.exists() || !tokens.exists() || !lexicon.exists()) {
             Log.e(TAG, "TTS: missing model files in ${modelDir.absolutePath}")
             return false
         }
 
         val numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
 
-        Log.i(TAG, "TTS: initializing with numThreads=$numThreads")
+        Log.i(TAG, "TTS: initializing VITS with numThreads=$numThreads")
         statePtr = nativeCreateTts(
-            acousticModel.absolutePath,
-            vocoder.absolutePath,
+            model.absolutePath,
             tokens.absolutePath,
             lexicon.absolutePath,
+            if (dataDir.exists()) dataDir.absolutePath else null,
             numThreads
         )
 
@@ -83,10 +83,10 @@ class SherpaTtsEngine(private val context: Context) {
     }
 
     private external fun nativeCreateTts(
-        acousticModelPath: String,
-        vocoderPath: String,
+        modelPath: String,
         tokensPath: String,
         lexiconPath: String,
+        dataDirPath: String?,
         numThreads: Int
     ): Long
 
