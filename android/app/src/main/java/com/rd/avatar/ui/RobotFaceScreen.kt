@@ -61,7 +61,7 @@ private const val HIP_W_FRACTION         = 0.04f   // hip half-width / canvas wi
 // Line weights
 private const val BODY_STROKE    = 6f
 private const val LIMB_STROKE    = 5f
-private const val JOINT_RADIUS   = 5f    // hand/foot dot
+private const val JOINT_RADIUS   = 6f    // hand/foot dot
 private const val EYE_RADIUS_FRACTION  = 0.012f
 private const val MOUTH_W_FRACTION     = 0.04f
 
@@ -435,16 +435,18 @@ private data class StickPose(
     val rightLowerLegAngle: Float,
 )
 
-/** IDLE: relaxed standing */
+/** IDLE: relaxed standing with visible elbow/knee bends */
 private fun idlePose(): StickPose = StickPose(
-    leftUpperArmAngle  = Math.toRadians((-12.0)).toFloat(),
-    leftForearmAngle   = Math.toRadians(8.0).toFloat(),
-    rightUpperArmAngle = Math.toRadians(12.0).toFloat(),
-    rightForearmAngle  = Math.toRadians((-8.0)).toFloat(),
-    leftUpperLegAngle  = Math.toRadians((-3.0)).toFloat(),
-    leftLowerLegAngle  = 0f,
-    rightUpperLegAngle = Math.toRadians(3.0).toFloat(),
-    rightLowerLegAngle = 0f,
+    // Arms: upper arm out, forearm in = clear elbow V-shape (~35° bend)
+    leftUpperArmAngle  = Math.toRadians((-22.0)).toFloat(),
+    leftForearmAngle   = Math.toRadians(14.0).toFloat(),
+    rightUpperArmAngle = Math.toRadians(22.0).toFloat(),
+    rightForearmAngle  = Math.toRadians((-14.0)).toFloat(),
+    // Legs: slight knee bend (~8°), visible but natural
+    leftUpperLegAngle  = Math.toRadians((-5.0)).toFloat(),
+    leftLowerLegAngle  = Math.toRadians(3.0).toFloat(),
+    rightUpperLegAngle = Math.toRadians(5.0).toFloat(),
+    rightLowerLegAngle = Math.toRadians((-3.0)).toFloat(),
 )
 
 /** LISTENING: lean forward, hand cupping ear */
@@ -797,10 +799,10 @@ private fun DrawScope.drawLimb(
         strokeWidth = LIMB_STROKE,
         cap = StrokeCap.Round
     )
-    // Joint dot at elbow/knee
+    // Joint dot at elbow/knee (visible bend)
     drawCircle(
         color = ColorStickBody,
-        radius = endRadius * 0.6f,
+        radius = endRadius * 0.85f,
         center = joint2
     )
     // End dot (hand/foot)
