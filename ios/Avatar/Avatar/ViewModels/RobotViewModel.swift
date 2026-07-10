@@ -57,7 +57,7 @@ class RobotViewModel: ObservableObject {
     private var speakingTask: Task<Void, Never>?
     private var recognitionTask: Task<Void, Never>?
     private var blinkTask: Task<Void, Never>?
-    private var faceCheckTask: Task<Void, Never>?
+    private var anticTask: Task<Void, Never>?
     private var wakeEventCancellable: AnyCancellable?
     private var resumeCancellable: AnyCancellable?
     private var wakeRunningCancellable: AnyCancellable?
@@ -65,10 +65,6 @@ class RobotViewModel: ObservableObject {
     // VAD
     private var latestRms: Float = 0
     private var vadTask: Task<Void, Never>?
-
-    // Expression smoothing
-    private var expressionWindow: [Emotion?] = []
-    private let expressionWindowSize = 5
 
     // Pause/resume tracking
     private var isRobotRunning = false
@@ -126,9 +122,8 @@ class RobotViewModel: ObservableObject {
         isRobotRunning = true
 
         initEngines()
-        startFaceDetection()
         startBlinkTimer()
-        startFaceCheckTimer()
+        startAnticTimer()
     }
 
     // MARK: - Pause / Resume
@@ -146,16 +141,11 @@ class RobotViewModel: ObservableObject {
         // Stop all audio (recording, playback, wake word)
         stopAllAudio()
 
-        // Stop camera / face detection
-        faceDetector.stop()
-        faceCancellable?.cancel()
-        faceCancellable = nil
-
         // Cancel all async tasks
         blinkTask?.cancel()
         blinkTask = nil
-        faceCheckTask?.cancel()
-        faceCheckTask = nil
+        anticTask?.cancel()
+        anticTask = nil
         recognitionTask?.cancel()
         recognitionTask = nil
         vadTask?.cancel()
@@ -171,7 +161,6 @@ class RobotViewModel: ObservableObject {
         isMultiTurn = false
         multiTurnBlankCount = 0
         isInConversation = false
-        expressionWindow.removeAll()
 
         // Release audio session so other components (or system) can use it
         AudioSessionManager.deactivate()
@@ -194,12 +183,9 @@ class RobotViewModel: ObservableObject {
             initEngines()
         }
 
-        // Restart camera / face detection
-        startFaceDetection()
-
         // Restart background timers
         startBlinkTimer()
-        startFaceCheckTimer()
+        startAnticTimer()
 
         // Restore audio session
         AudioSessionManager.configure()
@@ -236,32 +222,20 @@ class RobotViewModel: ObservableObject {
         }
     }
 
-    private func startFaceDetection() {
+    /// Turn on the camera for "looking" mode — triggered by voice command.
+    func startLooking() {
+        guard enginesReady else {
+            errorMessage = "模型未就绪，请先上传模型文件"
+            return
+        }
         faceDetector.start()
+        robotState.mode = .looking
+    }
 
-        faceCancellable = faceDetector.faces
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] result in
-                guard let self = self else { return }
-                self.robotState.faceTargetX = result?.cx
-                self.robotState.faceTargetY = result?.cy
-                self.robotState.msSinceLastFace = (result != nil) ? 0 : self.robotState.msSinceLastFace + 200
-
-                // Expression mimicry: in watching mode, mirror the user's
-                // facial expression onto the robot. Use a rolling window
-                // to smooth out transient Vision noise.
-                if let result = result, self.robotState.mode == .watching {
-                    let inferred = result.inferredEmotion()
-                    self.expressionWindow.append(inferred)
-                    if self.expressionWindow.count > self.expressionWindowSize {
-                        self.expressionWindow.removeFirst()
-                    }
-                    // Require majority agreement in the window
-                    if let dominant = self.smoothedExpression() {
-                        self.robotState.emotion = dominant
-                    }
-                }
-            }
+    /// Turn off the camera and return to idle.
+    func stopLooking() {
+        faceDetector.stop()
+        robotState.mode = .idle
     }
 
     private func startBlinkTimer() {
@@ -275,42 +249,15 @@ class RobotViewModel: ObservableObject {
         }
     }
 
-    private func startFaceCheckTimer() {
-        faceCheckTask = Task { @MainActor [weak self] in
+    private func startAnticTimer() {
+        anticTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 200_000_000)  // 200ms poll
-
+                // Fire goofy antics every 5-15 seconds when idle
+                let delay = UInt64.random(in: 5_000_000_000...15_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
                 guard let self = self, !self.isPaused else { continue }
-                let hasFace = self.robotState.faceTargetX != nil
-                let idleTooLong = self.robotState.msSinceLastFace > 10_000
-
-                // Face appeared → WATCHING + greeting
-                if hasFace && self.robotState.mode == .idle {
-                    let greeting = self.behaviorEngine.onFaceAppear()
-                    self.robotState.mode = .watching
-                    self.robotState.emotion = .happy
-                    self.robotState.responseText = greeting
-                    self.expressionWindow.removeAll()   // fresh expression window
-                    try? await Task.sleep(nanoseconds: 800_000_000)
-                    // Re-check: don't interrupt if the user has already
-                    // engaged in a conversation (tapped to talk, wake word,
-                    // or LLM response in progress).
-                    if self.robotState.mode == .watching || self.robotState.mode == .idle {
-                        self.speakText(greeting)
-                    }
-                }
-
-                // Face disappeared too long → IDLE + remark
-                if !hasFace
-                    && idleTooLong
-                    && self.robotState.mode != .idle
-                    && self.robotState.mode != .listening
-                    && self.robotState.mode != .speaking {
-                    let remark = self.behaviorEngine.onFaceDisappear()
-                    self.robotState.mode = .idle
-                    if let remark = remark {
-                        self.speakText(remark)
-                    }
+                if self.robotState.mode == .idle {
+                    self.robotState.anticTrigger += 1
                 }
             }
         }
@@ -461,7 +408,7 @@ class RobotViewModel: ObservableObject {
                             self.speakText("嗯？还在吗？")
                         }
                     } else {
-                        self.robotState.mode = self.robotState.faceTargetX != nil ? .watching : .idle
+                        self.robotState.mode = .idle
                         if self.wakeWordTriggered {
                             self.wakeWordManager.notifyFalseTrigger()
                             self.wakeWordTriggered = false
@@ -614,11 +561,7 @@ class RobotViewModel: ObservableObject {
             return
         }
 
-        let newMode: RobotMode = (robotState.faceTargetX != nil) ? .watching : .idle
-        robotState.mode = newMode
-        if newMode == .watching {
-            expressionWindow.removeAll()
-        }
+        robotState.mode = .idle
 
         if wakeWordTriggered {
             wakeWordTriggered = false
@@ -643,11 +586,7 @@ class RobotViewModel: ObservableObject {
             endMultiTurn()
         }
 
-        let newMode: RobotMode = (robotState.faceTargetX != nil) ? .watching : .idle
-        robotState.mode = newMode
-        if newMode == .watching {
-            expressionWindow.removeAll()
-        }
+        robotState.mode = .idle
 
         // Resume KWS if it was stopped by onTap() before this
         if resumeKwsAfterVoiceFlow {
@@ -740,8 +679,8 @@ class RobotViewModel: ObservableObject {
 
     private func onWakeWordDetected() {
         guard enginesReady else { return }
-        guard robotState.mode == .idle || robotState.mode == .watching else {
-            os_log(.info, "RobotVM: ignoring wake word — not idle/watching")
+        guard robotState.mode == .idle || robotState.mode == .looking else {
+            os_log(.info, "RobotVM: ignoring wake word — not idle/looking")
             return
         }
 
@@ -842,24 +781,6 @@ class RobotViewModel: ObservableObject {
 
     // MARK: - Helpers
 
-    /// Returns the emotion that appears most often in the expression window,
-    /// or nil when there's no clear consensus.
-    private func smoothedExpression() -> Emotion? {
-        let recent = expressionWindow
-        guard !recent.isEmpty else { return nil }
-
-        var counts: [Emotion: Int] = [:]
-        for e in recent {
-            guard let e = e else { continue }
-            counts[e, default: 0] += 1
-        }
-        guard let best = counts.max(by: { $0.value < $1.value }) else { return nil }
-
-        // Require ≥ 60% of the window to agree
-        let threshold = max(1, Int(Double(expressionWindowSize) * 0.6))
-        return best.value >= threshold ? best.key : nil
-    }
-
     func checkConfig() -> Bool {
         let hasConfig = configRepo.hasConfig
         return hasConfig
@@ -888,7 +809,7 @@ class RobotViewModel: ObservableObject {
         speakingTask?.cancel()
         recognitionTask?.cancel()
         blinkTask?.cancel()
-        faceCheckTask?.cancel()
+        anticTask?.cancel()
         vadTask?.cancel()
         wakeEventCancellable?.cancel()
         resumeCancellable?.cancel()

@@ -2,8 +2,8 @@
 //  RobotFaceView.swift
 //  Avatar
 //
-//  UIViewRepresentable wrapping a UIKit UIView that draws the cartoon boy face.
-//  Uses CADisplayLink for animation (blink, speak, idle wander).
+//  UIViewRepresentable wrapping a UIKit UIView that draws the stick figure.
+//  Uses CADisplayLink for animation (blink, speak, idle wander, antics).
 //  Frame rate capped at 20 fps to reduce CPU/thermal load.
 //  iOS 14 compatible (SwiftUI Canvas requires iOS 15).
 //
@@ -15,7 +15,7 @@ import UIKit
 
 final class FaceDisplayView: UIView {
 
-    /// Target display refresh rate. 20 fps is smooth enough for the cartoon face
+    /// Target display refresh rate. 20 fps is smooth enough for the stick figure
     /// while dramatically reducing CPU vs. the default 60 fps.
     private static let targetFPS: Int = 20
 
@@ -23,15 +23,15 @@ final class FaceDisplayView: UIView {
         didSet { setNeedsDisplay() }
     }
 
-    // Smoothly interpolated face target (for eye tracking)
-    var targetX: CGFloat = 0.5
-    var targetY: CGFloat = 0.5
-
     // Animation parameters
     var blinkProgress: CGFloat = 0
     var speakAmount: CGFloat = 0
     var thinkPhase: CGFloat = 0
     var idleWander: CGFloat = 0
+    var listenPulse: CGFloat = 0
+    var breatheScale: CGFloat = 1.0
+    var anticPhase: CGFloat = 0       // goofy antic animation 0→1
+    var jumpPhase: CGFloat = 0        // jump animation 0→1
 
     // Timers
     private var displayLink: CADisplayLink?
@@ -43,22 +43,28 @@ final class FaceDisplayView: UIView {
     private var isBlinking = false
     private var speakTimer: Timer?
     private var thinkTimer: Timer?
+    private var listenTimer: Timer?
+    private var breatheTimer: Timer?
+    private var anticTimer: Timer?
+    private var jumpTimer: Timer?
+
+    // Track previous state for trigger detection
+    private var lastAnticTrigger: Int = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = FaceColors.bg
+        backgroundColor = StickColors.bg
         setupAnimation()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        backgroundColor = FaceColors.bg
+        backgroundColor = StickColors.bg
         setupAnimation()
     }
 
     private func setupAnimation() {
         displayLink = CADisplayLink(target: self, selector: #selector(animateStep))
-        // preferredFramesPerSecond available iOS 10+
         displayLink?.preferredFramesPerSecond = Self.targetFPS
         displayLink?.add(to: .main, forMode: .common)
         wanderStartTime = CACurrentMediaTime()
@@ -67,8 +73,7 @@ final class FaceDisplayView: UIView {
     @objc private func animateStep() {
         let now = CACurrentMediaTime()
 
-        // Idle wander — advance by the expected frame delta since we're at
-        // reduced frame rate (targetFPS), not screen refresh rate.
+        // Idle wander
         let elapsed = now - wanderStartTime
         if elapsed >= wanderPeriod {
             wanderStartTime = now
@@ -76,34 +81,26 @@ final class FaceDisplayView: UIView {
             wanderTargetEnd = CGFloat.random(in: -1...1)
             wanderPeriod = CFTimeInterval.random(in: 2...3.5)
         }
-        let t = CGFloat((elapsed / wanderPeriod))
+        let t = CGFloat(elapsed / wanderPeriod)
         idleWander = wanderTargetStart + (wanderTargetEnd - wanderTargetStart) * t
-
-        // Smooth target interpolation for eye tracking — scale lerp factor
-        // for reduced frame rate so tracking still feels responsive.
-        let lerpFactor: CGFloat = 0.45  // ~3× normal to compensate for 1/3 frame rate
-        if robotState.faceTargetX != nil {
-            let target = CGFloat(robotState.faceTargetX ?? 0.5)
-            targetX += (target - targetX) * lerpFactor
-            targetY += (CGFloat(robotState.faceTargetY ?? 0.5) - targetY) * lerpFactor
-        } else {
-            targetX += (0.5 - targetX) * 0.12
-            targetY += (0.5 - targetY) * 0.12
-        }
 
         setNeedsDisplay()
     }
 
     override func draw(_ rect: CGRect) {
-        FaceDrawer.drawFace(
+        StickFigureDrawer.drawStickFigure(
             in: rect,
-            state: robotState,
-            targetX: targetX,
-            targetY: targetY,
+            mode: robotState.mode,
+            emotion: robotState.emotion,
+            speakAmount: speakAmount,
+            thinkPhase: thinkPhase,
+            listenPulse: listenPulse,
+            breatheAmount: breatheScale,
             idleWander: idleWander,
             blinkProgress: blinkProgress,
-            speakAmount: speakAmount,
-            thinkPhase: thinkPhase
+            anticTrigger: robotState.anticTrigger,
+            jumpPhase: jumpPhase,
+            isSpeaking: robotState.isSpeaking
         )
     }
 
@@ -114,7 +111,6 @@ final class FaceDisplayView: UIView {
         isBlinking = true
         blinkTimer?.invalidate()
 
-        // Blink: close → hold → open
         animateBlinkPhase(to: 1.0, duration: 0.08) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
                 self?.animateBlinkPhase(to: 0.0, duration: 0.08) {
@@ -145,9 +141,9 @@ final class FaceDisplayView: UIView {
     func startSpeakingAnimation() {
         speakTimer?.invalidate()
         var isOpen = false
-        speakTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
+        speakTimer = Timer.scheduledTimer(withTimeInterval: 0.16, repeats: true) { [weak self] _ in
             isOpen.toggle()
-            self?.speakAmount = isOpen ? 1.0 : 0.2
+            self?.speakAmount = isOpen ? 1.0 : 0.15
         }
     }
 
@@ -174,6 +170,113 @@ final class FaceDisplayView: UIView {
         thinkPhase = 0
     }
 
+    // MARK: - Listen Pulse
+
+    func startListeningAnimation() {
+        listenTimer?.invalidate()
+        listenTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            UIView.animate(withDuration: 0.5, delay: 0, options: [.curveEaseInOut]) {
+                self?.listenPulse = self?.listenPulse == 1.0 ? 0.3 : 1.0
+            }
+        }
+    }
+
+    func stopListeningAnimation() {
+        listenTimer?.invalidate()
+        listenTimer = nil
+        listenPulse = 0
+    }
+
+    // MARK: - Breathe (idle)
+
+    func startBreathingAnimation() {
+        breatheTimer?.invalidate()
+        breatheTimer = Timer.scheduledTimer(withTimeInterval: 3.6, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            UIView.animate(withDuration: 1.8, delay: 0, options: [.curveEaseInOut]) {
+                self.breatheScale = self.breatheScale > 1.0 ? 0.97 : 1.03
+            }
+        }
+        // Fire immediately
+        if breatheScale == 1.0 {
+            breatheTimer?.fire()
+        }
+    }
+
+    func stopBreathingAnimation() {
+        breatheTimer?.invalidate()
+        breatheTimer = nil
+        breatheScale = 1.0
+    }
+
+    // MARK: - Antic (goofy random action)
+
+    func triggerAntic() {
+        // Run antic animation: 0 → 1 over 400ms, hold 800ms, 0 over 600ms
+        anticTimer?.invalidate()
+        anticPhase = 0
+        let tickInterval = 1.0 / Double(Self.targetFPS)
+
+        // Phase 1: in
+        animateAntic(to: 1.0, duration: 0.4, tick: tickInterval) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                // Phase 2: out
+                self?.animateAntic(to: 0.0, duration: 0.6, tick: tickInterval, completion: {})
+            }
+        }
+    }
+
+    private func animateAntic(to target: CGFloat, duration: TimeInterval, tick: TimeInterval, completion: @escaping () -> Void) {
+        let start = anticPhase
+        let steps = max(1, Int(duration / tick))
+        var i = 0
+        anticTimer = Timer.scheduledTimer(withTimeInterval: tick, repeats: true) { [weak self] timer in
+            i += 1
+            let progress = CGFloat(i) / CGFloat(steps)
+            self?.anticPhase = start + (target - start) * min(progress, 1.0)
+            if progress >= 1.0 {
+                timer.invalidate()
+                completion()
+            }
+        }
+    }
+
+    // MARK: - Jump
+
+    func triggerJump() {
+        jumpTimer?.invalidate()
+        jumpPhase = 0
+        let tick = 1.0 / Double(Self.targetFPS)
+
+        // Phase 1: crouch (0 → 0.25)
+        animateJump(to: 0.25, duration: 0.2, tick: tick) {
+            // Phase 2: launch up (0.25 → 0.6)
+            self.animateJump(to: 0.6, duration: 0.25, tick: tick) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    // Phase 3: fall + land (0.6 → 1.0)
+                    self?.animateJump(to: 1.0, duration: 0.3, tick: tick) {
+                        self?.jumpPhase = 0
+                    }
+                }
+            }
+        }
+    }
+
+    private func animateJump(to target: CGFloat, duration: TimeInterval, tick: TimeInterval, completion: @escaping () -> Void) {
+        let start = jumpPhase
+        let steps = max(1, Int(duration / tick))
+        var i = 0
+        jumpTimer = Timer.scheduledTimer(withTimeInterval: tick, repeats: true) { [weak self] timer in
+            i += 1
+            let progress = CGFloat(i) / CGFloat(steps)
+            self?.jumpPhase = start + (target - start) * min(progress, 1.0)
+            if progress >= 1.0 {
+                timer.invalidate()
+                completion()
+            }
+        }
+    }
+
     // MARK: - Pause / Resume
 
     func setPaused(_ paused: Bool) {
@@ -182,14 +285,12 @@ final class FaceDisplayView: UIView {
 
     // MARK: - Adaptive Frame Rate
 
-    /// Drop to a lower frame rate when the robot is idle (no face, not
-    /// speaking/thinking) to save even more CPU.
     func updateFrameRate(for mode: RobotMode) {
         let needsFullRate: Bool = {
             switch mode {
             case .listening, .speaking, .thinking:
                 return true
-            case .idle, .watching:
+            case .idle, .looking:
                 return false
             }
         }()
@@ -202,6 +303,10 @@ final class FaceDisplayView: UIView {
         blinkTimer?.invalidate()
         speakTimer?.invalidate()
         thinkTimer?.invalidate()
+        listenTimer?.invalidate()
+        breatheTimer?.invalidate()
+        anticTimer?.invalidate()
+        jumpTimer?.invalidate()
     }
 }
 
@@ -222,7 +327,7 @@ struct RobotFaceView: UIViewRepresentable {
         // Pause display link when settings is shown
         uiView.setPaused(isPaused)
 
-        // Adaptive frame rate: lower when idle/watching
+        // Adaptive frame rate
         if context.coordinator.lastMode != robotState.mode {
             context.coordinator.lastMode = robotState.mode
             uiView.updateFrameRate(for: robotState.mode)
@@ -232,6 +337,18 @@ struct RobotFaceView: UIViewRepresentable {
         if context.coordinator.lastBlinkTrigger != blinkTrigger {
             context.coordinator.lastBlinkTrigger = blinkTrigger
             uiView.triggerBlink()
+        }
+
+        // Handle antic trigger
+        if context.coordinator.lastAnticTrigger != robotState.anticTrigger {
+            context.coordinator.lastAnticTrigger = robotState.anticTrigger
+            if robotState.anticTrigger > 0 {
+                uiView.triggerAntic()
+                // ~20% of antics trigger a jump
+                if robotState.anticTrigger % 5 == 4 {
+                    uiView.triggerJump()
+                }
+            }
         }
 
         // Handle speaking
@@ -249,6 +366,22 @@ struct RobotFaceView: UIViewRepresentable {
             uiView.stopThinkingAnimation()
         }
         context.coordinator.wasThinking = (robotState.mode == .thinking)
+
+        // Handle listening
+        if robotState.mode == .listening && !context.coordinator.wasListening {
+            uiView.startListeningAnimation()
+        } else if robotState.mode != .listening && context.coordinator.wasListening {
+            uiView.stopListeningAnimation()
+        }
+        context.coordinator.wasListening = (robotState.mode == .listening)
+
+        // Handle breathing (idle only)
+        if robotState.mode == .idle && !context.coordinator.wasIdle {
+            uiView.startBreathingAnimation()
+        } else if robotState.mode != .idle && context.coordinator.wasIdle {
+            uiView.stopBreathingAnimation()
+        }
+        context.coordinator.wasIdle = (robotState.mode == .idle)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -257,8 +390,11 @@ struct RobotFaceView: UIViewRepresentable {
 
     class Coordinator {
         var lastBlinkTrigger: Int = -1
+        var lastAnticTrigger: Int = 0
         var wasSpeaking: Bool = false
         var wasThinking: Bool = false
+        var wasListening: Bool = false
+        var wasIdle: Bool = true
         var lastMode: RobotMode?
     }
 }
