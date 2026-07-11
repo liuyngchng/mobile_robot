@@ -119,7 +119,9 @@ class MainActivity : ComponentActivity() {
 
             // Shared speech-result handler for both tap-to-talk and wake-word flows.
             // Defined here so both the onTap lambda and the wakeEvents collector can access it.
-            val onSpeechResult: (String?) -> Unit = { text ->
+            // Must be a var (not val) because the lambda self-references inside speak() callbacks.
+            var onSpeechResult: ((String?) -> Unit)? = null
+            onSpeechResult = { text ->
                 if (text != null && text.isNotBlank()) {
                     // Productive wake: reset debounce
                     if (wakeWordTriggered) {
@@ -170,7 +172,7 @@ class MainActivity : ComponentActivity() {
                                     mode = RobotMode.LISTENING,
                                     isSpeaking = false
                                 )
-                                startRecording(onSpeechResult)
+                                startRecording(onSpeechResult!!)
                             } else {
                                 robotState = robotState.copy(
                                     mode = RobotMode.IDLE,
@@ -201,7 +203,7 @@ class MainActivity : ComponentActivity() {
                                     mode = RobotMode.LISTENING,
                                     isSpeaking = false
                                 )
-                                startRecording(onSpeechResult)
+                                startRecording(onSpeechResult!!)
                             }
                         }
                     } else {

@@ -83,7 +83,7 @@ class AudioPlayer(private val context: Context) {
                 // Wait until all written data has been played out
                 val durationMs = (shortSamples.size.toLong() * 1000) / sampleRate
                 val timeoutMs = durationMs + TIMEOUT_GRACE_MS
-                awaitPlaybackComplete(track, shortSamples.size, sampleRate, timeoutMs)
+                awaitPlaybackComplete(track, shortSamples.size, timeoutMs)
             } finally {
                 isPlaying = false
                 activeTrack = null
@@ -103,7 +103,6 @@ class AudioPlayer(private val context: Context) {
     private suspend fun awaitPlaybackComplete(
         track: AudioTrack,
         frameCount: Int,
-        sampleRate: Int,
         timeoutMs: Long
     ) {
         try {

@@ -1456,7 +1456,7 @@ private fun DrawScope.drawStickFace(
             else -> blinkAmount
         }
         if (lidScale < 0.95f) {
-            drawStickEye(sideEyeCenter, pupilDx, pupilDy, eyeRadius * 1.15f, lidScale, emotion)
+            drawStickEye(sideEyeCenter, pupilDx, pupilDy, eyeRadius * 1.15f, emotion)
         }
 
         // Small profile mouth line on the near side
@@ -1486,8 +1486,8 @@ private fun DrawScope.drawStickFace(
     }
 
     if (lidScale < 0.95f) {
-        drawStickEye(leftEyeCenter, pupilDx, pupilDy, eyeRadius, lidScale, emotion)
-        drawStickEye(rightEyeCenter, pupilDx, pupilDy, eyeRadius, lidScale, emotion)
+        drawStickEye(leftEyeCenter, pupilDx, pupilDy, eyeRadius, emotion)
+        drawStickEye(rightEyeCenter, pupilDx, pupilDy, eyeRadius, emotion)
     }
 
     // ── Eyebrows (simple curved lines) ──
@@ -1518,7 +1518,7 @@ private fun DrawScope.drawStickFace(
 /** Draw a single stick-figure eye */
 private fun DrawScope.drawStickEye(
     center: Offset, pupilDx: Float, pupilDy: Float,
-    radius: Float, lidScale: Float, emotion: Emotion
+    radius: Float, emotion: Emotion
 ) {
     val pupilCenter = Offset(center.x + pupilDx, center.y + pupilDy)
 
