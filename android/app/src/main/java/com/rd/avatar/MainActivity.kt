@@ -52,18 +52,21 @@ class MainActivity : ComponentActivity() {
     // Sherpa-onnx engines (offline)
     private val asrEngine by lazy { SherpaAsrEngine(this) }
     private val ttsEngine by lazy { SherpaTtsEngine(this) }
-    private val audioPlayer = AudioPlayer()
+    private val audioPlayer = AudioPlayer(this)
     private val audioRecorder = AudioRecorder(this)
 
-    private var asrReady = false
-    private var ttsReady = false
-    private var isRecording = false
-    private var recordingJob: Job? = null
-    private var onSpeechEnd: ((String?) -> Unit)? = null
+    @Volatile private var asrReady = false
+    @Volatile private var ttsReady = false
+    @Volatile private var isRecording = false
+    @Volatile private var recordingJob: Job? = null
+    @Volatile private var onSpeechEnd: ((String?) -> Unit)? = null
+
+    // Lifecycle-aware scope — cancelled in onDestroy to prevent leaks
+    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // VAD (Voice Activity Detection) constants
     companion object {
-        // Base silence threshold (RMS). Actual threshold = max(this, noiseFloor * 2.0)
+        // Base silence threshold (RMS). Actual threshold = max(this, noiseFloor * 1.8)
         private const val VAD_SILENCE_THRESHOLD = 0.022f
         // Consecutive silent chunks to auto-stop (~80ms/chunk)
         private const val VAD_MAX_SILENT_CHUNKS = 20
@@ -108,6 +111,110 @@ class MainActivity : ComponentActivity() {
 
             // Wake word toggle state
             val wakeWordEnabled by WakeWordManager.isRunning.collectAsState()
+
+            // Wake-word-triggered session tracking
+            var wakeWordTriggered by remember { mutableStateOf(false) }
+            var isMultiTurn by remember { mutableStateOf(false) }
+            var multiTurnBlankCount by remember { mutableIntStateOf(0) }
+
+            // Shared speech-result handler for both tap-to-talk and wake-word flows.
+            // Defined here so both the onTap lambda and the wakeEvents collector can access it.
+            val onSpeechResult: (String?) -> Unit = { text ->
+                if (text != null && text.isNotBlank()) {
+                    // Productive wake: reset debounce
+                    if (wakeWordTriggered) {
+                        WakeWordManager.notifyProductiveWake()
+                    }
+                    multiTurnBlankCount = 0
+                    robotState = robotState.copy(
+                        mode = RobotMode.THINKING,
+                        lastUserText = text,
+                        emotion = Emotion.CURIOUS,
+                        isSpeaking = false
+                    )
+                    scope.launch {
+                        // Check if user is asking to look at something
+                        val wantsCamera = text.contains("看") &&
+                            (text.contains("外面") || text.contains("什么") ||
+                             text.contains("哪里") || text.contains("前面"))
+
+                        if (wantsCamera) {
+                            robotState = robotState.copy(
+                                mode = RobotMode.LOOKING,
+                                emotion = Emotion.CURIOUS
+                            )
+                            delay(1500)
+                        }
+
+                        val (response, emotion) = if (configRepository.hasConfig) {
+                            chatSession.send(text).fold(
+                                onSuccess = { it to Emotion.HAPPY },
+                                onFailure = { e ->
+                                    Log.w("MainActivity", "LLM fail, fallback to rules", e)
+                                    behaviorEngine.respond(text)
+                                }
+                            )
+                        } else {
+                            behaviorEngine.respond(text)
+                        }
+                        robotState = robotState.copy(
+                            mode = RobotMode.SPEAKING,
+                            responseText = response,
+                            emotion = emotion,
+                            isSpeaking = true
+                        )
+                        speak(response) {
+                            if (isMultiTurn) {
+                                // Auto-listen for next utterance
+                                robotState = robotState.copy(
+                                    mode = RobotMode.LISTENING,
+                                    isSpeaking = false
+                                )
+                                startRecording(onSpeechResult)
+                            } else {
+                                robotState = robotState.copy(
+                                    mode = RobotMode.IDLE,
+                                    isSpeaking = false
+                                )
+                            }
+                            if (wakeWordTriggered) {
+                                wakeWordTriggered = false
+                                WakeWordManager.notifyVoiceFlowDone()
+                            }
+                        }
+                    }
+                } else {
+                    // Blank / empty speech
+                    if (isMultiTurn) {
+                        multiTurnBlankCount++
+                        if (multiTurnBlankCount >= 2) {
+                            // End multi-turn after two consecutive blanks
+                            isMultiTurn = false
+                            multiTurnBlankCount = 0
+                            wakeWordTriggered = false
+                            WakeWordManager.notifyVoiceFlowDone()
+                            robotState = robotState.copy(mode = RobotMode.IDLE)
+                        } else {
+                            // Prompt user to continue
+                            speak("嗯？还在吗？") {
+                                robotState = robotState.copy(
+                                    mode = RobotMode.LISTENING,
+                                    isSpeaking = false
+                                )
+                                startRecording(onSpeechResult)
+                            }
+                        }
+                    } else {
+                        robotState = robotState.copy(mode = RobotMode.IDLE)
+                        if (wakeWordTriggered) {
+                            WakeWordManager.notifyFalseTrigger()
+                            wakeWordTriggered = false
+                            WakeWordManager.notifyVoiceFlowDone()
+                        }
+                        speak("没听清，请再说一遍")
+                    }
+                }
+            }
 
             // Initialize ASR/TTS when models become ready
             LaunchedEffect(modelsReady) {
@@ -200,6 +307,35 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // ── Wake word event → start voice flow (the missing link) ──
+            LaunchedEffect(Unit) {
+                WakeWordManager.wakeEvents.collect {
+                    if (!enginesReady) return@collect
+                    if (robotState.mode != RobotMode.IDLE && robotState.mode != RobotMode.LOOKING) {
+                        Log.i("MainActivity", "Ignoring wake word — not idle/looking")
+                        return@collect
+                    }
+                    Log.i("MainActivity", "Wake word triggered — starting voice flow")
+                    wakeWordTriggered = true
+                    isMultiTurn = true
+                    multiTurnBlankCount = 0
+
+                    // Play greeting TTS, then auto-listen
+                    val greetingPcm = withContext(Dispatchers.IO) {
+                        ttsEngine.synthesize("哎，我在呢")
+                    }
+                    if (greetingPcm != null) {
+                        robotState = robotState.copy(mode = RobotMode.SPEAKING, isSpeaking = true)
+                        withContext(Dispatchers.IO) {
+                            audioPlayer.play(greetingPcm, ttsEngine.getSampleRate())
+                        }
+                    }
+                    // Start recording for the user's first utterance
+                    robotState = robotState.copy(mode = RobotMode.LISTENING, isSpeaking = false)
+                    startRecording(onSpeechResult)
+                }
+            }
+
             // ── Screen routing ──
             when (currentScreen) {
                 is Screen.RobotFace -> {
@@ -217,59 +353,10 @@ class MainActivity : ComponentActivity() {
                             if (wakeWordEnabled) {
                                 stopWakeWordService()
                             }
-                            // Shared result handler
-                            val onSpeechResult: (String?) -> Unit = { text ->
-                                if (text != null && text.isNotBlank()) {
-                                    robotState = robotState.copy(
-                                        mode = RobotMode.THINKING,
-                                        lastUserText = text,
-                                        emotion = Emotion.CURIOUS,
-                                        isSpeaking = false
-                                    )
-                                    scope.launch {
-                                        // Check if user is asking to look at something
-                                        val wantsCamera = text.contains("看") &&
-                                            (text.contains("外面") || text.contains("什么") ||
-                                             text.contains("哪里") || text.contains("前面"))
 
-                                        if (wantsCamera) {
-                                            // Switch to LOOKING mode briefly
-                                            robotState = robotState.copy(
-                                                mode = RobotMode.LOOKING,
-                                                emotion = Emotion.CURIOUS
-                                            )
-                                            delay(1500) // brief "looking" pose
-                                        }
-
-                                        val (response, emotion) = if (configRepository.hasConfig) {
-                                            chatSession.send(text).fold(
-                                                onSuccess = { it to Emotion.HAPPY },
-                                                onFailure = { e ->
-                                                    Log.w("MainActivity", "LLM fail, fallback to rules", e)
-                                                    behaviorEngine.respond(text)
-                                                }
-                                            )
-                                        } else {
-                                            behaviorEngine.respond(text)
-                                        }
-                                        robotState = robotState.copy(
-                                            mode = RobotMode.SPEAKING,
-                                            responseText = response,
-                                            emotion = emotion,
-                                            isSpeaking = true
-                                        )
-                                        speak(response) {
-                                            robotState = robotState.copy(
-                                                mode = RobotMode.IDLE,
-                                                isSpeaking = false
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    robotState = robotState.copy(mode = RobotMode.IDLE)
-                                    speak("没听清，请再说一遍")
-                                }
-                            }
+                            // Tap-to-talk: not a wake-word session
+                            wakeWordTriggered = false
+                            isMultiTurn = false
 
                             if (isRecording) {
                                 stopRecording { onSpeechResult(it) }
@@ -347,6 +434,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        activityScope.cancel()
+        super.onDestroy()
+    }
+
     // ── Wake word service ──────────────────────────────────────────────
 
     private fun startWakeWordService() {
@@ -361,7 +453,7 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(this, VoiceService::class.java).apply {
             action = VoiceService.ACTION_STOP
         }
-        startService(intent)
+        stopService(intent)
     }
 
     // ── ASR recording ─────────────────────────────────────────────────
@@ -369,7 +461,7 @@ class MainActivity : ComponentActivity() {
     /** Calibrate noise threshold once at startup. */
     private fun calibrateNoiseOnce() {
         Log.i("MainActivity", "Starting one-time noise calibration")
-        CoroutineScope(Dispatchers.IO).launch {
+        activityScope.launch(Dispatchers.IO) {
             try {
                 var noiseFloor = Float.MAX_VALUE
                 var chunkCount = 0
@@ -406,7 +498,9 @@ class MainActivity : ComponentActivity() {
         var silentChunks = 0
         val effectiveThreshold = calibratedNoiseThreshold
 
-        recordingJob = CoroutineScope(Dispatchers.IO).launch {
+        // Cancel any stale job before starting a new one
+        recordingJob?.cancel()
+        recordingJob = activityScope.launch(Dispatchers.IO) {
             try {
                 val timeoutJob = launch {
                     delay((MAX_RECORD_SECONDS * 1000).toLong())
@@ -448,6 +542,8 @@ class MainActivity : ComponentActivity() {
 
     private fun stopRecording(onResult: (String?) -> Unit) {
         onSpeechEnd = onResult
+        recordingJob?.cancel()
+        recordingJob = null
         audioRecorder.stopRecording()
     }
 
@@ -456,7 +552,7 @@ class MainActivity : ComponentActivity() {
     private fun speak(text: String, onDone: (() -> Unit)? = null) {
         if (!ttsReady) return
         val sentences = TextNormalizer.splitSentences(text)
-        CoroutineScope(Dispatchers.IO).launch {
+        activityScope.launch(Dispatchers.IO) {
             val sr = ttsEngine.getSampleRate()
             for (sentence in sentences) {
                 val normalized = TextNormalizer.normalize(sentence)

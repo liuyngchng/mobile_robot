@@ -509,6 +509,7 @@ class RobotViewModel: ObservableObject {
                 await MainActor.run {
                     self.robotState.responseText = reply
                     self.robotState.emotion = .happy
+                    self.chatSession.appendAssistantReply(reply)
                     self.speakText(reply)
                 }
             } else {
@@ -530,6 +531,7 @@ class RobotViewModel: ObservableObject {
         return try await withCheckedThrowingContinuation { continuation in
             var fullReply = ""
 
+            streamingCancellable?.cancel()
             streamingCancellable = streamPublisher
                 .flatMap { $0 }
                 .sink(
@@ -760,6 +762,8 @@ class RobotViewModel: ObservableObject {
                     }
                 }
                 self.audioPlayer.stop()
+            } else {
+                os_log(.error, "RobotVM: wake-word greeting TTS synthesis failed — skipping voice prompt")
             }
 
             self.startListening()
