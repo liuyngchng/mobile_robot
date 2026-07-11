@@ -52,7 +52,6 @@ enum StickGeo {
     static let shoulderWFrac: CGFloat    = 0.06
     static let hipWFrac: CGFloat         = 0.04
     static let footSpreadFrac: CGFloat   = 0.015   // normal stance foot spread from hip
-    static let squatFootSpreadFrac: CGFloat = 0.056 // wider stance for squatting
 
     static let bodyStroke: CGFloat   = 6
     static let limbStroke: CGFloat   = 5
@@ -275,13 +274,26 @@ final class StickFigureDrawer {
         return -sin(t * .pi) * figureHeight * 0.35
     }
 
-    private static func squattingPose() -> StickPose {
+    /// CROSS-LEGGED SITTING: hips on ground, legs folded, lower legs crossed.
+    /// Thighs spread moderately outward; shins angle sharply inward so feet
+    /// cross past each other forming a visible X below the knees.
+    private static func sittingPose() -> StickPose {
         StickPose(
-            headShiftY: 8, bodyScale: 0,  // no compress — IK places feet; squat from knee bend
-            leftUpperArmAngle: deg2rad(-20), leftForearmAngle: deg2rad(-80),
-            rightUpperArmAngle: deg2rad(20), rightForearmAngle: deg2rad(80),
-            leftUpperLegAngle: deg2rad(-55), leftLowerLegAngle: deg2rad(50),
-            rightUpperLegAngle: deg2rad(55), rightLowerLegAngle: deg2rad(-50)
+            headTilt: deg2rad(4),
+            headShiftY: 210,                // lower entire body so hips reach ground
+            hipShiftY: 210,                 // same — body shifts down as a unit
+            bodyScale: 0,                   // no compression
+            figureRotation: 0,
+            // Arms: hands resting on knees
+            leftUpperArmAngle: deg2rad(-28),
+            leftForearmAngle: deg2rad(-40),
+            rightUpperArmAngle: deg2rad(28),
+            rightForearmAngle: deg2rad(40),
+            // Legs: thighs moderate spread, shins cross inward forming X (FK — IK skipped for sitting)
+            leftUpperLegAngle: deg2rad(-55),
+            leftLowerLegAngle: deg2rad(82),
+            rightUpperLegAngle: deg2rad(55),
+            rightLowerLegAngle: deg2rad(-82)
         )
     }
 
@@ -513,7 +525,7 @@ final class StickFigureDrawer {
             if jumpPhase > 0.01 {
                 modePose = jumpingPose(jumpPhase)
             } else if anticTrigger > 0 && anticTrigger % 7 == 3 {
-                modePose = squattingPose()
+                modePose = sittingPose()
             } else if anticTrigger > 3 && anticTrigger % 13 == 7 {
                 modePose = lyingPose()
             } else {
@@ -632,24 +644,28 @@ final class StickFigureDrawer {
         let neckY = headCY + headR
         let effectiveHipY = neckY + bodyLen * (1 - pose.bodyScale)
 
+        // Lying: rotate figure around its own center so body stays above ground.
+        // The figure extends leftward from center; auto-zoom keeps it on screen.
+        let groundCX = cx   // ground always centered, regardless of pose
+
         // ═══════════════════════════════════════════════════════
         //  GROUND — drawn BEFORE any figure transforms so it
         //  stays fixed regardless of jump / rotation / etc.
         // ═══════════════════════════════════════════════════════
-        drawGroundLine(ctx: ctx, cx: cx, feetY: feetY, canvasW: w)
-        drawGroundShadow(ctx: ctx, cx: cx, feetY: feetY)
+        drawGroundLine(ctx: ctx, cx: groundCX, feetY: feetY, canvasW: w)
+        drawGroundShadow(ctx: ctx, cx: groundCX, feetY: feetY)
 
-        // ── Auto-zoom: scale rotated (lying) figure to fill screen width ──
+        // Auto-zoom: scale rotated figure to fill available horizontal space.
+        // With center pivot the figure extends both left and right; we size for the
+        // longer reach (typically leftward) and keep at least 50 % scale.
         let lieScale: CGFloat
         if pose.figureRotation != 0 {
             let absAngleRad = abs(pose.figureRotation) * .pi / 180
             let horizontalReach = sin(absAngleRad) * figureH + headR * 2.5
-            let availableW = w - 40                 // full screen width minus margins
+            let availableW = cx - 20                     // space from center to left margin
             if horizontalReach > availableW {
-                // Scale down to fit within canvas
                 lieScale = max((availableW / horizontalReach), 0.5)
             } else if horizontalReach > 0 {
-                // Scale up to fill screen (cap at 2.5x)
                 lieScale = min((availableW / horizontalReach), 2.5)
             } else {
                 lieScale = 1
@@ -666,7 +682,7 @@ final class StickFigureDrawer {
         // Save context for figure transforms (rotation / jump)
         ctx.saveGState()
 
-        // Whole-body rotation (lying down) — pivot around feet so body rests on ground
+        // Whole-body rotation (lying down) — pivot around center-bottom
         if pose.figureRotation != 0 {
             let rotCenter = CGPoint(x: cx, y: feetY)
             ctx.translateBy(x: rotCenter.x, y: rotCenter.y)
@@ -720,7 +736,7 @@ final class StickFigureDrawer {
         }
 
         // ── Joint positions ──
-        let neck = CGPoint(x: cx + pose.neckShiftX, y: neckY)
+        let neck = CGPoint(x: cx + pose.neckShiftX, y: neckY + pose.headShiftY)
         let leftShoulder  = CGPoint(x: neck.x - shoulderHalfW, y: neck.y)
         let rightShoulder = CGPoint(x: neck.x + shoulderHalfW, y: neck.y)
         let hip = CGPoint(x: cx + pose.hipShiftX, y: effectiveHipY + pose.hipShiftY)
@@ -785,10 +801,10 @@ final class StickFigureDrawer {
         let isLying = pose.figureRotation != 0
         let isStageWalk = mode == .speaking && stageWalkPhase > 0.01
         let isWalking = (walkType == .left || walkType == .right) && walkPhase > 0.01
+        let isSitting = mode == .idle && anticTrigger > 0 && anticTrigger % 7 == 3
         let isWakingUp = !enginesReady
-        if !isJumping && !isLying && !isWakingUp {
-            let isSquatting = mode == .idle && anticTrigger > 0 && anticTrigger % 7 == 3
-            let footSpread = isSquatting ? w * StickGeo.squatFootSpreadFrac : w * StickGeo.footSpreadFrac
+        if !isJumping && !isLying && !isWakingUp && !isSitting {
+            let footSpread = w * StickGeo.footSpreadFrac
 
             if isStageWalk || isWalking {
                 // Keep the planted foot on the ground; the swinging foot lifts via FK.
@@ -893,7 +909,8 @@ final class StickFigureDrawer {
         drawLimb(ctx: ctx, j1: rightShoulder, j2: rightElbow, j3: rightHand, endR: jointR)
 
         // Head
-        drawHead(ctx: ctx, center: adjustedHeadCenter, radius: headR, emotion: emotion)
+        drawHead(ctx: ctx, center: adjustedHeadCenter, radius: headR, emotion: emotion,
+                 showBlush: walkType != .away)
 
         // Face + indicators (skip for back view when walking AWAY)
         if walkType != .away {
@@ -904,7 +921,7 @@ final class StickFigureDrawer {
                      isSpeaking: isSpeaking, speakAmount: speakAmount,
                      blinkAmount: blinkProgress,
                      isSideView: walkType == .left || walkType == .right || pose.figureRotation != 0,
-                     facingRight: walkType == .right || pose.figureRotation != 0)
+                     facingRight: walkType == .right || pose.figureRotation > 0)
 
             // Mode indicators — zzZ during wake-up, otherwise mode-specific
             if !enginesReady {
@@ -969,7 +986,8 @@ final class StickFigureDrawer {
                                     width: endR * 2, height: endR * 2))
     }
 
-    private static func drawHead(ctx: CGContext, center: CGPoint, radius: CGFloat, emotion: Emotion) {
+    private static func drawHead(ctx: CGContext, center: CGPoint, radius: CGFloat, emotion: Emotion,
+                                  showBlush: Bool = true) {
         // Radial gradient fill
         ctx.saveGState()
         let headRect = CGRect(x: center.x - radius, y: center.y - radius,
@@ -987,8 +1005,8 @@ final class StickFigureDrawer {
         ctx.setLineWidth(2.5)
         ctx.strokeEllipse(in: headRect)
 
-        // Blush for happy/shy — radial gradient from pink center → transparent edge
-        if emotion == .happy || emotion == .shy {
+        // Blush for happy/shy — skip when facing away (back of head)
+        if showBlush && (emotion == .happy || emotion == .shy) {
             let blushR = radius * 0.22
             let blushY = center.y + radius * 0.05
             let blushXOff = radius * 0.55
@@ -1040,12 +1058,53 @@ final class StickFigureDrawer {
                         radius: eyeRadius * 1.15, lidScale: lidScale, emotion: emotion)
             }
 
-            // Small profile mouth line on the near side
-            let mouthY = headCenter.y + headRadius * 0.35
-            let mouthCx = headCenter.x + sign * headRadius * 0.18
-            drawMouth(ctx: ctx, cx: mouthCx, mouthY: mouthY,
-                      halfWidth: mouthHalfW * 0.6, emotion: emotion,
-                      isSpeaking: isSpeaking, speakAmount: speakAmount)
+            // Profile mouth: V-shaped notch cut out from the head circle edge.
+            // When speaking, the notch opens into a wedge; otherwise a carved V line.
+            let mouthEdgeX = headCenter.x + sign * headRadius
+            let mouthBaseY = headCenter.y + headRadius * 0.2
+
+            if isSpeaking {
+                let openAmt = speakAmount * headRadius * 0.22
+                let inset = headRadius * 0.12
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: mouthEdgeX, y: mouthBaseY - openAmt))
+                path.addLine(to: CGPoint(x: mouthEdgeX - sign * inset, y: mouthBaseY))
+                path.addLine(to: CGPoint(x: mouthEdgeX, y: mouthBaseY + openAmt))
+                path.close()
+                // Cut notch from head circle
+                ctx.setBlendMode(.clear)
+                ctx.setFillColor(UIColor.black.cgColor)
+                ctx.addPath(path.cgPath)
+                ctx.fillPath()
+                // Fill wedge with mouth color
+                ctx.setBlendMode(.normal)
+                ctx.setFillColor(StickColors.mouth.cgColor)
+                ctx.addPath(path.cgPath)
+                ctx.fillPath()
+            } else {
+                // V-shaped notch carved into head circle (2× larger)
+                let inset = headRadius * 0.16
+                let dy: CGFloat = 5.0
+                let notchPath = UIBezierPath()
+                notchPath.move(to: CGPoint(x: mouthEdgeX, y: mouthBaseY - dy))
+                notchPath.addLine(to: CGPoint(x: mouthEdgeX - sign * inset, y: mouthBaseY))
+                notchPath.addLine(to: CGPoint(x: mouthEdgeX, y: mouthBaseY + dy))
+                notchPath.close()
+                // Hollow out the V-notch from head fill + outline
+                ctx.setBlendMode(.clear)
+                ctx.setFillColor(UIColor.black.cgColor)
+                ctx.addPath(notchPath.cgPath)
+                ctx.fillPath()
+                // Stroke V outline on top
+                ctx.setBlendMode(.normal)
+                ctx.setStrokeColor(StickColors.mouth.cgColor)
+                ctx.setLineWidth(1.8)
+                ctx.setLineCap(.round)
+                ctx.move(to: CGPoint(x: mouthEdgeX, y: mouthBaseY - dy))
+                ctx.addLine(to: CGPoint(x: mouthEdgeX - sign * inset, y: mouthBaseY))
+                ctx.addLine(to: CGPoint(x: mouthEdgeX, y: mouthBaseY + dy))
+                ctx.strokePath()
+            }
             return
         }
 
