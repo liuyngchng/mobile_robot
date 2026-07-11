@@ -464,15 +464,14 @@ fun RobotFaceScreen(
             }
 
             // ── IK for legs: lock feet on ground (all standing poses) ──
-            // Skip during jumps (feet leave ground), lying (figure rotated),
-            // and waking up (spread legs).
-            // During stage walk we still apply IK to the planted foot to
-            // prevent both feet from leaving the ground (floating appearance).
-            val isJumping = jumpPhase.value > 0.01f
+            // Skip during lying (figure rotated) and waking up (spread legs).
+            // Jump is NOT skipped — IK keeps feet on ground during crouch/landing.
+            // The jump vertical offset (jumpOffsetY ≤ 0) lifts the whole figure
+            // including IK-locked feet during the airborne phase.
             val isLying = pose.figureRotation != 0f
             val isStageWalk = state.mode == RobotMode.SPEAKING && stageWalkPhase.value > 0.01f
             val isWakingUp = !enginesReady
-            if (!isJumping && !isLying && !isWakingUp) {
+            if (!isLying && !isWakingUp) {
                 val isSquatting = state.mode == RobotMode.IDLE &&
                     state.anticTrigger > 0 && state.anticTrigger % 7L == 3L
                 // Foot spread proportional to screen width (matches iOS)
