@@ -468,8 +468,12 @@ fun RobotFaceScreen(
             // Jump is NOT skipped — IK keeps feet on ground during crouch/landing.
             // The jump vertical offset (jumpOffsetY ≤ 0) lifts the whole figure
             // including IK-locked feet during the airborne phase.
+            // During stage walk and left/right walking we apply IK only to the
+            // planted foot — the swinging foot uses FK so it can lift naturally.
             val isLying = pose.figureRotation != 0f
             val isStageWalk = state.mode == RobotMode.SPEAKING && stageWalkPhase.value > 0.01f
+            val isWalking = (walkType == WalkType.LEFT || walkType == WalkType.RIGHT)
+                && walkPhase.value > 0.01f
             val isWakingUp = !enginesReady
             if (!isLying && !isWakingUp) {
                 val isSquatting = state.mode == RobotMode.IDLE &&
@@ -477,29 +481,30 @@ fun RobotFaceScreen(
                 // Foot spread proportional to screen width (matches iOS)
                 val footSpread = if (isSquatting) w * 0.056f else w * 0.015f
 
-                if (isStageWalk) {
-                    // During the talking sway, keep at least one foot planted.
-                    // Planted foot = opposite to sway direction:
-                    //   sway right → left foot planted; sway left → right foot planted.
-                    // A small overlap zone (±0.05) plants both feet during transition.
-                    val stageSwing = sin(stageWalkPhase.value * 2f * PI.toFloat())
+                if (isStageWalk || isWalking) {
+                    // Keep the planted foot on the ground; the swinging foot lifts via FK.
+                    // Planted foot = opposite to swing direction (trailing leg).
+                    val phase = if (isWalking) walkPhase.value else stageWalkPhase.value
+                    val cycles: Float = if (isWalking) 3f else 1f
+                    val gaitPhase = phase * cycles * 2f * PI.toFloat()
+                    val refSwing = sin(gaitPhase)
 
-                    if (stageSwing >= -0.05f) {
-                        // Swaying right or centered: left foot is the anchor
+                    if (refSwing >= -0.05f) {
+                        // Left foot planted (swing ≥ -0.05 → left leg is trailing)
                         solve2BoneIK(leftHip, upperLegLen, lowerLegLen,
                             Offset(leftHip.x - footSpread, feetY), bendCCW = true)?.let {
                             llUA = it.angle1; llLA = it.angle2
                         }
                     }
-                    if (stageSwing <= 0.05f) {
-                        // Swaying left or centered: right foot is the anchor
+                    if (refSwing <= 0.05f) {
+                        // Right foot planted (swing ≤ 0.05 → right leg is trailing)
                         solve2BoneIK(rightHip, upperLegLen, lowerLegLen,
                             Offset(rightHip.x + footSpread, feetY), bendCCW = false)?.let {
                             rlUA = it.angle1; rlLA = it.angle2
                         }
                     }
                 } else {
-                    // Non-stage-walk standing poses: lock both feet on ground,
+                    // Non-walking standing poses: lock both feet on ground,
                     // preferring outward knee bend to prevent knock-kneed look.
                     val leftFootTarget  = Offset(leftHip.x - footSpread, feetY)
                     val rightFootTarget = Offset(rightHip.x + footSpread, feetY)
@@ -605,25 +610,34 @@ fun RobotFaceScreen(
                     facingRight = walkType == WalkType.RIGHT
                 )
 
-                // ── Mode indicators ──
-                when (state.mode) {
-                    RobotMode.LISTENING -> drawListenWaves(
-                        leftHand.x - jointR, leftHand.y, listenPulse.value
-                    )
-                    RobotMode.THINKING -> drawThinkDots(
+                // ── Mode indicators — zzZ during wake-up, otherwise mode-specific ──
+                if (!enginesReady) {
+                    drawWakeUpZzz(
                         headCenter.x + pose.headShiftX,
-                        headCenter.y + pose.headShiftY - headR - 20f,
+                        headCenter.y + pose.headShiftY,
+                        headR,
                         thinkPhase.value
                     )
-                    RobotMode.LOOKING -> drawLookingIndicator(
-                        headCenter.x + pose.headShiftX,
-                        headCenter.y + pose.headShiftY - headR
-                    )
-                    else -> {}
+                } else {
+                    when (state.mode) {
+                        RobotMode.LISTENING -> drawListenWaves(
+                            leftHand.x - jointR, leftHand.y, listenPulse.value
+                        )
+                        RobotMode.THINKING -> drawThinkDots(
+                            headCenter.x + pose.headShiftX,
+                            headCenter.y + pose.headShiftY - headR - 20f,
+                            thinkPhase.value
+                        )
+                        RobotMode.LOOKING -> drawLookingIndicator(
+                            headCenter.x + pose.headShiftX,
+                            headCenter.y + pose.headShiftY - headR
+                        )
+                        else -> {}
+                    }
                 }
 
-                // ── Status ring (pulse when active) ──
-                if (state.mode == RobotMode.THINKING || state.mode == RobotMode.SPEAKING) {
+                // ── Status ring (skip during wake-up — zzZ is the indicator) ──
+                if ((state.mode == RobotMode.THINKING || state.mode == RobotMode.SPEAKING) && enginesReady) {
                     val alpha = if (state.mode == RobotMode.THINKING) 0.35f else 0.8f
                     val color = if (state.mode == RobotMode.THINKING) ColorAccent
                         else ColorMouth
@@ -989,24 +1003,24 @@ private fun squattingPose(): StickPose = StickPose(
     rightLowerLegAngle = Math.toRadians((-50.0)).toFloat(),  // calf angled back
 )
 
-    /** LOUNGING: leaning against left screen edge like a wall. Body at ~18° above horizontal, hips and knees bent for a natural relaxed look. */
+    /** LOUNGING: leaning against left screen edge like a wall. Body nearly flat (~12° above horizontal), hips and knees bent for a natural relaxed look. */
 private fun lyingPose(): StickPose = StickPose(
-    headTilt = Math.toRadians((-22.0)).toFloat(),     // head resting on "wall"
-    headShiftX = 0f, headShiftY = -20f,               // shift upper body away from ground after rotation
-    neckShiftX = 0f, hipShiftX = 0f, hipShiftY = -25f, // raise hips so legs stay above ground after rotation
+    headTilt = Math.toRadians((-18.0)).toFloat(),     // head resting on "wall"
+    headShiftX = 0f, headShiftY = 0f,
+    neckShiftX = 0f, hipShiftX = 0f, hipShiftY = -55f, // raise body well above ground after rotation
     bodyScale = 0f,
-    figureRotation = -72f,                              // lean against left edge (~18° above flat)
-    // Left arm: propping body up, elbow planted
-    leftUpperArmAngle  = Math.toRadians((-105.0)).toFloat(),  // reach back to prop
-    leftForearmAngle   = Math.toRadians((-65.0)).toFloat(),   // forearm planted
-    // Right arm: relaxed across body
-    rightUpperArmAngle = Math.toRadians(25.0).toFloat(),
-    rightForearmAngle  = Math.toRadians((-30.0)).toFloat(),
+    figureRotation = -78f,                              // nearly flat (~12° above horizontal)
+    // Left arm: propping body up, hand resting on ground
+    leftUpperArmAngle  = Math.toRadians((-75.0)).toFloat(),  // reach toward ground
+    leftForearmAngle   = Math.toRadians((-50.0)).toFloat(),  // forearm planted on ground
+    // Right arm: relaxed across body, staying above ground
+    rightUpperArmAngle = Math.toRadians(35.0).toFloat(),
+    rightForearmAngle  = Math.toRadians((-40.0)).toFloat(),
     // Legs: relaxed bent-knee lounging
-    leftUpperLegAngle  = Math.toRadians((-35.0)).toFloat(),   // thigh angled down from hip
-    leftLowerLegAngle  = Math.toRadians(42.0).toFloat(),      // shin toward feet
-    rightUpperLegAngle = Math.toRadians(35.0).toFloat(),      // thigh angled down from hip
-    rightLowerLegAngle = Math.toRadians((-42.0)).toFloat(),   // shin toward feet
+    leftUpperLegAngle  = Math.toRadians((-30.0)).toFloat(),   // thigh angled gently
+    leftLowerLegAngle  = Math.toRadians(35.0).toFloat(),      // shin toward feet
+    rightUpperLegAngle = Math.toRadians(30.0).toFloat(),      // thigh angled gently
+    rightLowerLegAngle = Math.toRadians((-35.0)).toFloat(),   // shin toward feet
 )
 
     /** WAKING UP: both hands rubbing eyes, groggy head tilt, legs spread wide in a "大" shape */
@@ -1054,38 +1068,45 @@ private fun walkingPose(phase: Float): StickPose {
     )
 }
 
-/** WALKING side-profile: both arms on walking side, body leans forward. Used for LEFT/RIGHT. */
+/** WALKING side-profile: cross-swing arms with fixed elbow, alternating straight/bent legs.
+ *  Ported from iOS FaceParts.walkingSidePose. Used for LEFT/RIGHT. */
 private fun walkingSidePose(phase: Float, facingLeft: Boolean): StickPose {
     val gaitCycles = 3f
     val gaitPhase = phase * gaitCycles * 2f * PI.toFloat()
-    val swing = sin(gaitPhase)
-    val bob = abs(swing)
+    val swing = sin(gaitPhase)         // -1..1, drives limb alternation
+    val bob = abs(swing)               // 0..1, body bounce
 
-    val sign = if (facingLeft) -1f else 1f    // direction multiplier
-    val legSwing = swing * 38f                // stronger stride in side view
-    val armSwing = swing * 32f
-    val kneeBend = bob * 12f
-    val armBase: Float = sign * 8f            // slight forward arm bias
+    val sign = if (facingLeft) -1f else 1f
+
+    // Leg: one straight (planted), one bent (swinging), alternating
+    val legArc: Float = 28f            // max leg swing in degrees
+    val kneeFlex: Float = 22f          // max knee bend when swinging
+
+    // Arm: upper arms cross-swing (opposite to legs), forearms keep fixed angle
+    val armSwing: Float = 24f
+    val fixedElbow: Float = 18f
 
     return StickPose(
-        headTilt = Math.toRadians((swing * 2.0 + sign * 8.0)).toFloat(),  // slight turn
-        headShiftX = sign * 4f,             // shift face toward walking direction
+        headTilt = Math.toRadians((swing * 2.0 + sign * 4.0)).toFloat(),
+        headShiftX = sign * 3f,
         headShiftY = -bob * 5f,
-        neckShiftX = sign * 2.5f,           // body lean forward
+        neckShiftX = sign * 2f,
         hipShiftX = sign * 2f,
         hipShiftY = 0f,
-        bodyScale = bob * 0.06f,
+        bodyScale = bob * 0.04f,
         figureRotation = 0f,
-        // Both arms on the same side, swinging together like pendulums
-        leftUpperArmAngle  = Math.toRadians(((-22.0 * sign) - armSwing + armBase)).toFloat(),
-        leftForearmAngle   = Math.toRadians(((14.0 * sign) + armSwing * 0.4)).toFloat(),
-        rightUpperArmAngle = Math.toRadians(((-18.0 * sign) - armSwing + armBase)).toFloat(),
-        rightForearmAngle  = Math.toRadians(((10.0 * sign) + armSwing * 0.4)).toFloat(),
-        // Legs: alternating stride
-        leftUpperLegAngle  = Math.toRadians((-5.0 - legSwing)).toFloat(),
-        leftLowerLegAngle  = Math.toRadians(kneeBend.toDouble()).toFloat(),
-        rightUpperLegAngle = Math.toRadians((3.0 + legSwing)).toFloat(),    // opposite to left
-        rightLowerLegAngle = Math.toRadians((-kneeBend).toDouble()).toFloat(),
+        // Arms: cross-swing with fixed elbow angle
+        leftUpperArmAngle  = Math.toRadians((-armSwing * swing).toDouble()).toFloat(),
+        leftForearmAngle   = Math.toRadians((-fixedElbow).toDouble()).toFloat(),
+        rightUpperArmAngle = Math.toRadians((armSwing * swing).toDouble()).toFloat(),
+        rightForearmAngle  = Math.toRadians(fixedElbow.toDouble()).toFloat(),
+        // Legs: one straight (planted back), one bent (swinging forward)
+        // swing > 0 → right forward/bent, left back/straight
+        // swing < 0 → left forward/bent, right back/straight
+        leftUpperLegAngle  = Math.toRadians((-swing * legArc).toDouble()).toFloat(),
+        leftLowerLegAngle  = Math.toRadians((max(0f, -swing) * kneeFlex).toDouble()).toFloat(),
+        rightUpperLegAngle = Math.toRadians((swing * legArc).toDouble()).toFloat(),
+        rightLowerLegAngle = Math.toRadians((-max(0f, swing) * kneeFlex).toDouble()).toFloat(),
     )
 }
 
@@ -1860,6 +1881,38 @@ private fun DrawScope.drawLookingIndicator(cx: Float, y: Float) {
         radius = 2f,
         center = Offset(cx + bodyW / 2f - 2f, y - bodyH + 2f)
     )
+}
+
+/** Floating "zzZ" above the head during wake-up. Three Z's growing larger
+ *  and drifting upward, with a gentle side-to-side wobble. */
+private fun DrawScope.drawWakeUpZzz(cx: Float, headCY: Float, headRadius: Float, phase: Float) {
+    val baseX = cx + headRadius * 0.6f
+    val baseY = headCY - headRadius * 1.15f
+    val wobble = phase * 2.5f
+
+    for (i in 0..2) {
+        val scale = 1.0f + i * 0.4f
+        val offsetY = -i * 8f
+        val offsetX = i * 5f + wobble * (i + 1) * 0.4f
+        val alpha = 0.25f + i * 0.2f
+
+        val x = baseX + offsetX
+        val y = baseY + offsetY
+        val halfW = scale * 2.8f
+        val halfH = scale * 2.2f
+
+        val path = Path().apply {
+            moveTo(x - halfW, y - halfH)       // top-left
+            lineTo(x + halfW, y - halfH)       // top-right
+            lineTo(x - halfW, y + halfH)       // bottom-left
+            lineTo(x + halfW, y + halfH)       // bottom-right
+        }
+        drawPath(
+            path = path,
+            color = ColorAccent.copy(alpha = alpha),
+            style = Stroke(width = 1.2f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
 }
 
 // ─── Ear Icon ──────────────────────────────────────────────────
