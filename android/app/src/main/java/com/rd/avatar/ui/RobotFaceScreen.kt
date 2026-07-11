@@ -329,14 +329,11 @@ fun RobotFaceScreen(
             val effectiveHipY = neckY + bodyLen * (1f - pose.bodyScale)
 
             // ═══════════════════════════════════════════════════════
-            //  GROUND — for side walks and idle, draw before transforms
-            //  so it stays fixed. For depth walks (AWAY/TOWARD), drawn
-            //  inside the scale transform so the ground recedes with the figure.
+            //  GROUND — drawn before any figure transforms so it
+            //  stays fixed regardless of walk / jump / rotation.
             // ═══════════════════════════════════════════════════════
-            if (walkType != WalkType.AWAY && walkType != WalkType.TOWARD) {
-                drawGroundLine(cx, feetY, w)
-                drawGroundShadow(cx, feetY)
-            }
+            drawGroundLine(cx, feetY, w)
+            drawGroundShadow(cx, feetY)
 
             // ── Auto-zoom: scale rotated figure to fill screen width comfortably ──
             val lieScale = if (pose.figureRotation != 0f) {
@@ -387,24 +384,20 @@ fun RobotFaceScreen(
                     drawContext.transform.translate(wrapped, 0f)
                 }
                 WalkType.AWAY -> {
-                    // Walk into depth: scale down, feet stay planted on ground
+                    // Walk into depth: scale down, feet stay planted on ground.
+                    // Ground was already drawn above — it stays fixed while figure recedes.
                     val scale = 1f - walkPhase.value * 0.75f   // 1 → 0.25
                     drawContext.transform.translate(cx, feetY)
                     drawContext.transform.scale(scale, scale)
                     drawContext.transform.translate(-cx, -feetY)
-                    // Ground scales with figure so feet stay on the ground line
-                    drawGroundLine(cx, feetY, w)
-                    drawGroundShadow(cx, feetY)
                 }
                 WalkType.TOWARD -> {
-                    // Walk out of depth: scale up, feet stay planted on ground
+                    // Walk out of depth: scale up, feet stay planted on ground.
+                    // Ground was already drawn above — it stays fixed while figure grows.
                     val scale = 0.25f + walkPhase.value * 0.75f // 0.25 → 1
                     drawContext.transform.translate(cx, feetY)
                     drawContext.transform.scale(scale, scale)
                     drawContext.transform.translate(-cx, -feetY)
-                    // Ground scales with figure so feet stay on the ground line
-                    drawGroundLine(cx, feetY, w)
-                    drawGroundShadow(cx, feetY)
                 }
                 WalkType.NONE -> { /* no walk transform */ }
             }
@@ -472,24 +465,50 @@ fun RobotFaceScreen(
 
             // ── IK for legs: lock feet on ground (all standing poses) ──
             // Skip during jumps (feet leave ground), lying (figure rotated),
-            // stage walk (explicit walking angles), and waking up (spread legs)
+            // and waking up (spread legs).
+            // During stage walk we still apply IK to the planted foot to
+            // prevent both feet from leaving the ground (floating appearance).
             val isJumping = jumpPhase.value > 0.01f
             val isLying = pose.figureRotation != 0f
             val isStageWalk = state.mode == RobotMode.SPEAKING && stageWalkPhase.value > 0.01f
             val isWakingUp = !enginesReady
-            if (!isJumping && !isLying && !isStageWalk && !isWakingUp) {
+            if (!isJumping && !isLying && !isWakingUp) {
                 val isSquatting = state.mode == RobotMode.IDLE &&
                     state.anticTrigger > 0 && state.anticTrigger % 7L == 3L
-                // Wider stance for squatting, narrow for normal standing
-                val footSpread = if (isSquatting) 22f else 6f
-                // Solve leg IK preferring outward knee bend — prevents knock-kneed
-                // look on devices where the aspect ratio causes compensation > |targetAngle|
-                val leftFootTarget  = Offset(leftHip.x - footSpread, feetY)
-                val rightFootTarget = Offset(rightHip.x + footSpread, feetY)
-                solveLegIK(leftHip, upperLegLen, lowerLegLen, leftFootTarget,
-                    outwardKneeLeft = true)?.let { llUA = it.angle1; llLA = it.angle2 }
-                solveLegIK(rightHip, upperLegLen, lowerLegLen, rightFootTarget,
-                    outwardKneeLeft = false)?.let { rlUA = it.angle1; rlLA = it.angle2 }
+                // Foot spread proportional to screen width (matches iOS)
+                val footSpread = if (isSquatting) w * 0.056f else w * 0.015f
+
+                if (isStageWalk) {
+                    // During the talking sway, keep at least one foot planted.
+                    // Planted foot = opposite to sway direction:
+                    //   sway right → left foot planted; sway left → right foot planted.
+                    // A small overlap zone (±0.05) plants both feet during transition.
+                    val stageSwing = sin(stageWalkPhase.value * 2f * PI.toFloat())
+
+                    if (stageSwing >= -0.05f) {
+                        // Swaying right or centered: left foot is the anchor
+                        solve2BoneIK(leftHip, upperLegLen, lowerLegLen,
+                            Offset(leftHip.x - footSpread, feetY), bendCCW = true)?.let {
+                            llUA = it.angle1; llLA = it.angle2
+                        }
+                    }
+                    if (stageSwing <= 0.05f) {
+                        // Swaying left or centered: right foot is the anchor
+                        solve2BoneIK(rightHip, upperLegLen, lowerLegLen,
+                            Offset(rightHip.x + footSpread, feetY), bendCCW = false)?.let {
+                            rlUA = it.angle1; rlLA = it.angle2
+                        }
+                    }
+                } else {
+                    // Non-stage-walk standing poses: lock both feet on ground,
+                    // preferring outward knee bend to prevent knock-kneed look.
+                    val leftFootTarget  = Offset(leftHip.x - footSpread, feetY)
+                    val rightFootTarget = Offset(rightHip.x + footSpread, feetY)
+                    solveLegIK(leftHip, upperLegLen, lowerLegLen, leftFootTarget,
+                        outwardKneeLeft = true)?.let { llUA = it.angle1; llLA = it.angle2 }
+                    solveLegIK(rightHip, upperLegLen, lowerLegLen, rightFootTarget,
+                        outwardKneeLeft = false)?.let { rlUA = it.angle1; rlLA = it.angle2 }
+                }
             }
 
             // ── Final limb positions (FK with possibly-IK-overridden angles) ──
@@ -974,7 +993,7 @@ private fun squattingPose(): StickPose = StickPose(
     /** LOUNGING: leaning against left screen edge like a wall. Body at ~18° above horizontal, hips and knees bent for a natural relaxed look. */
 private fun lyingPose(): StickPose = StickPose(
     headTilt = Math.toRadians((-22.0)).toFloat(),     // head resting on "wall"
-    headShiftX = 0f, headShiftY = 0f,
+    headShiftX = 0f, headShiftY = -20f,               // shift upper body away from ground after rotation
     neckShiftX = 0f, hipShiftX = 0f, hipShiftY = -25f, // raise hips so legs stay above ground after rotation
     bodyScale = 0f,
     figureRotation = -72f,                              // lean against left edge (~18° above flat)
@@ -1546,15 +1565,8 @@ private fun DrawScope.drawStickEye(
         }
     }
 
-    // Eyelid overlay
-    if (lidScale > 0.01f) {
-        val lidH = radius * 3f * lidScale
-        drawRect(
-            color = ColorHeadFill,
-            topLeft = Offset(center.x - radius * 1.8f, center.y - radius * 2.2f),
-            size = Size(radius * 3.6f, lidH + radius * 0.5f)
-        )
-    }
+    // No eyelid overlay — matches iOS.  The eye is simply not drawn when
+    // lidScale >= 0.95 (full blink), which is handled by the caller.
 }
 
 /** Draw a stick-figure eyebrow */
