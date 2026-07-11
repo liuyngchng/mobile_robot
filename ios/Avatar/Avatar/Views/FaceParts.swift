@@ -288,20 +288,20 @@ final class StickFigureDrawer {
     /// LOUNGING: leaning against left screen edge like a wall. Body at ~18° above horizontal, hips and knees bent for a natural relaxed look.
     private static func lyingPose() -> StickPose {
         StickPose(
-            headTilt: deg2rad(-22),                    // head resting on "wall"
-            hipShiftY: -25,                             // raise hips so legs stay above ground after rotation
-            figureRotation: -72,                        // lean against left edge (~18° above flat)
-            // Left arm: propping body up, elbow planted
-            leftUpperArmAngle: deg2rad(-105),           // reach back to prop
-            leftForearmAngle: deg2rad(-65),             // forearm planted
-            // Right arm: relaxed across body
-            rightUpperArmAngle: deg2rad(25),
-            rightForearmAngle: deg2rad(-30),
+            headTilt: deg2rad(-18),                    // head resting on "wall"
+            hipShiftY: -55,                             // raise body well above ground after rotation
+            figureRotation: -78,                        // nearly flat (~12° above horizontal)
+            // Left arm: propping body up, hand resting on ground
+            leftUpperArmAngle: deg2rad(-75),            // reach toward ground
+            leftForearmAngle: deg2rad(-50),             // forearm planted on ground
+            // Right arm: relaxed across body, staying above ground
+            rightUpperArmAngle: deg2rad(35),
+            rightForearmAngle: deg2rad(-40),
             // Legs: relaxed bent-knee lounging
-            leftUpperLegAngle: deg2rad(-35),            // thigh angled down from hip
-            leftLowerLegAngle: deg2rad(42),             // shin toward feet
-            rightUpperLegAngle: deg2rad(35),            // thigh angled down from hip
-            rightLowerLegAngle: deg2rad(-42)            // shin toward feet
+            leftUpperLegAngle: deg2rad(-30),            // thigh angled gently
+            leftLowerLegAngle: deg2rad(35),             // shin toward feet
+            rightUpperLegAngle: deg2rad(30),            // thigh angled gently
+            rightLowerLegAngle: deg2rad(-35)            // shin toward feet
         )
     }
 
@@ -639,17 +639,17 @@ final class StickFigureDrawer {
         drawGroundLine(ctx: ctx, cx: cx, feetY: feetY, canvasW: w)
         drawGroundShadow(ctx: ctx, cx: cx, feetY: feetY)
 
-        // ── Auto-zoom: scale rotated figure to fill screen width comfortably ──
+        // ── Auto-zoom: scale rotated (lying) figure to fill screen width ──
         let lieScale: CGFloat
         if pose.figureRotation != 0 {
             let absAngleRad = abs(pose.figureRotation) * .pi / 180
             let horizontalReach = sin(absAngleRad) * figureH + headR * 2.5
-            let availableW = w / 2 - 20  // margin from edge
+            let availableW = w - 40                 // full screen width minus margins
             if horizontalReach > availableW {
                 // Scale down to fit within canvas
-                lieScale = max((availableW / horizontalReach), 0.25)
+                lieScale = max((availableW / horizontalReach), 0.5)
             } else if horizontalReach > 0 {
-                // Scale up to fill more of the screen (cap at 2.5x)
+                // Scale up to fill screen (cap at 2.5x)
                 lieScale = min((availableW / horizontalReach), 2.5)
             } else {
                 lieScale = 1
@@ -903,24 +903,28 @@ final class StickFigureDrawer {
                      mouthHalfW: mouthHalfW, emotion: emotion,
                      isSpeaking: isSpeaking, speakAmount: speakAmount,
                      blinkAmount: blinkProgress,
-                     isSideView: walkType == .left || walkType == .right,
-                     facingRight: walkType == .right)
+                     isSideView: walkType == .left || walkType == .right || pose.figureRotation != 0,
+                     facingRight: walkType == .right || pose.figureRotation != 0)
 
-            // Mode indicators
-            switch mode {
-            case .listening:
-                drawListenWaves(ctx: ctx, x: leftHand.x - jointR, y: leftHand.y, pulse: listenPulse)
-            case .thinking:
-                drawThinkDots(ctx: ctx, cx: adjustedHeadCenter.x,
-                              y: adjustedHeadCenter.y - headR - 20, phase: thinkPhase)
-            case .looking:
-                drawLookingIndicator(ctx: ctx, cx: adjustedHeadCenter.x,
-                                     y: adjustedHeadCenter.y - headR)
-            default: break
+            // Mode indicators — zzZ during wake-up, otherwise mode-specific
+            if !enginesReady {
+                drawWakeUpZzz(ctx: ctx, headCenter: adjustedHeadCenter, headRadius: headR, phase: thinkPhase)
+            } else {
+                switch mode {
+                case .listening:
+                    drawListenWaves(ctx: ctx, x: leftHand.x - jointR, y: leftHand.y, pulse: listenPulse)
+                case .thinking:
+                    drawThinkDots(ctx: ctx, cx: adjustedHeadCenter.x,
+                                  y: adjustedHeadCenter.y - headR - 20, phase: thinkPhase)
+                case .looking:
+                    drawLookingIndicator(ctx: ctx, cx: adjustedHeadCenter.x,
+                                         y: adjustedHeadCenter.y - headR)
+                default: break
+                }
             }
 
-            // Status ring
-            if mode == .thinking || mode == .speaking {
+            // Status ring (skip during wake-up — zzZ is the indicator)
+            if (mode == .thinking || mode == .speaking) && enginesReady {
                 let alpha: CGFloat = mode == .thinking ? 0.35 : 0.8
                 let color = mode == .thinking ? StickColors.accent : StickColors.mouth
                 ctx.setStrokeColor(color.withAlphaComponent(alpha).cgColor)
@@ -1428,6 +1432,42 @@ final class StickFigureDrawer {
             let r: CGFloat = 4.5 - CGFloat(i) * 0.8
             ctx.setFillColor(StickColors.accent.withAlphaComponent(alpha).cgColor)
             ctx.fillEllipse(in: CGRect(x: cx + 5 - r, y: dotY - r, width: r * 2, height: r * 2))
+        }
+    }
+
+    /// Floating "zzZ" above the head during wake-up. Three Z's growing larger
+    /// and drifting upward, with a gentle side-to-side wobble.
+    private static func drawWakeUpZzz(ctx: CGContext, headCenter: CGPoint, headRadius: CGFloat, phase: CGFloat) {
+        let baseX = headCenter.x + headRadius * 0.6
+        let baseY = headCenter.y - headRadius * 1.15
+        let wobble = phase * 2.5
+
+        for i in 0..<3 {
+            let scale: CGFloat = 1.0 + CGFloat(i) * 0.4
+            let offsetY = -CGFloat(i) * 8
+            let offsetX = CGFloat(i) * 5 + wobble * CGFloat(i + 1) * 0.4
+            let alpha: CGFloat = 0.25 + CGFloat(i) * 0.2
+
+            let x = baseX + offsetX
+            let y = baseY + offsetY
+            let halfW = scale * 2.8
+            let halfH = scale * 2.2
+
+            ctx.setStrokeColor(StickColors.accent.withAlphaComponent(alpha).cgColor)
+            ctx.setLineWidth(1.2)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+
+            let topLeft     = CGPoint(x: x - halfW, y: y - halfH)
+            let topRight    = CGPoint(x: x + halfW, y: y - halfH)
+            let bottomLeft  = CGPoint(x: x - halfW, y: y + halfH)
+            let bottomRight = CGPoint(x: x + halfW, y: y + halfH)
+
+            ctx.move(to: topLeft)
+            ctx.addLine(to: topRight)
+            ctx.addLine(to: bottomLeft)
+            ctx.addLine(to: bottomRight)
+            ctx.strokePath()
         }
     }
 
