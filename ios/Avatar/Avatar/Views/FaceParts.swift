@@ -303,7 +303,7 @@ final class StickFigureDrawer {
         )
     }
 
-    /// WAKING UP: both hands rubbing eyes, groggy head tilt, relaxed stance
+    /// WAKING UP: both hands rubbing eyes, groggy head tilt, legs spread wide in a "大" shape
     private static func wakingUpPose() -> StickPose {
         StickPose(
             headTilt: deg2rad(-8),          // groggy tilt
@@ -314,9 +314,9 @@ final class StickFigureDrawer {
             leftForearmAngle: deg2rad(-35),
             rightUpperArmAngle: deg2rad(72),
             rightForearmAngle: deg2rad(35),
-            // Legs: relaxed standing
-            leftUpperLegAngle: deg2rad(-2), leftLowerLegAngle: deg2rad(0),
-            rightUpperLegAngle: deg2rad(2), rightLowerLegAngle: deg2rad(0)
+            // Legs: wide spread "大" shape
+            leftUpperLegAngle: deg2rad(-50), leftLowerLegAngle: deg2rad(15),
+            rightUpperLegAngle: deg2rad(50), rightLowerLegAngle: deg2rad(-15)
         )
     }
 
@@ -769,11 +769,13 @@ final class StickFigureDrawer {
         }
 
         // IK for legs: lock feet on ground (all standing poses)
-        // Skip during jumps (feet leave ground), lying (figure rotated), and stage walk (explicit walking angles)
+        // Skip during jumps (feet leave ground), lying (figure rotated),
+        // stage walk (explicit walking angles), and waking up (spread legs)
         let isJumping = jumpPhase > 0.01
         let isLying = pose.figureRotation != 0
         let isStageWalk = mode == .speaking && stageWalkPhase > 0.01
-        if !isJumping && !isLying && !isStageWalk {
+        let isWakingUp = !enginesReady
+        if !isJumping && !isLying && !isStageWalk && !isWakingUp {
             let isSquatting = mode == .idle && anticTrigger > 0 && anticTrigger % 7 == 3
             let footSpread: CGFloat = isSquatting ? 22 : 6
             if let ik = solve2BoneIK(root: leftHip, len1: upperLegLen, len2: lowerLegLen,

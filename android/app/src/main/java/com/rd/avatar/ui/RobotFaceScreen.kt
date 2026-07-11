@@ -31,6 +31,7 @@ import com.rd.avatar.robot.RobotMode
 import com.rd.avatar.robot.RobotState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.math.*
 import kotlin.random.Random
 
@@ -459,11 +460,13 @@ fun RobotFaceScreen(
             }
 
             // ── IK for legs: lock feet on ground (all standing poses) ──
-            // Skip during jumps (feet leave ground), lying (figure rotated), and stage walk (explicit walking angles)
+            // Skip during jumps (feet leave ground), lying (figure rotated),
+            // stage walk (explicit walking angles), and waking up (spread legs)
             val isJumping = jumpPhase.value > 0.01f
             val isLying = pose.figureRotation != 0f
             val isStageWalk = state.mode == RobotMode.SPEAKING && stageWalkPhase.value > 0.01f
-            if (!isJumping && !isLying && !isStageWalk) {
+            val isWakingUp = !enginesReady
+            if (!isJumping && !isLying && !isStageWalk && !isWakingUp) {
                 val isSquatting = state.mode == RobotMode.IDLE &&
                     state.anticTrigger > 0 && state.anticTrigger % 7L == 3L
                 // Wider stance for squatting, narrow for normal standing
@@ -928,7 +931,7 @@ private fun squattingPose(): StickPose = StickPose(
     rightLowerLegAngle = Math.toRadians((-50.0)).toFloat(),  // calf angled back
 )
 
-/** LOUNGING: leaning against left screen edge like a wall. Body at ~18° above horizontal, hips and knees bent for a natural relaxed look. */
+    /** LOUNGING: leaning against left screen edge like a wall. Body at ~18° above horizontal, hips and knees bent for a natural relaxed look. */
 private fun lyingPose(): StickPose = StickPose(
     headTilt = Math.toRadians((-22.0)).toFloat(),     // head resting on "wall"
     headShiftX = 0f, headShiftY = 0f,
@@ -948,7 +951,7 @@ private fun lyingPose(): StickPose = StickPose(
     rightLowerLegAngle = Math.toRadians((-42.0)).toFloat(),   // shin toward feet
 )
 
-/** WAKING UP: both hands rubbing eyes, groggy head tilt, relaxed stance */
+    /** WAKING UP: both hands rubbing eyes, groggy head tilt, legs spread wide in a "大" shape */
 private fun wakingUpPose(): StickPose = StickPose(
     headTilt = Math.toRadians((-8.0)).toFloat(),      // groggy tilt
     headShiftX = 0f, headShiftY = 3f,                 // head slightly tucked
@@ -959,11 +962,11 @@ private fun wakingUpPose(): StickPose = StickPose(
     leftForearmAngle   = Math.toRadians((-35.0)).toFloat(),
     rightUpperArmAngle = Math.toRadians(72.0).toFloat(),
     rightForearmAngle  = Math.toRadians(35.0).toFloat(),
-    // Legs: relaxed standing
-    leftUpperLegAngle  = Math.toRadians((-2.0)).toFloat(),
-    leftLowerLegAngle  = Math.toRadians(0.0).toFloat(),
-    rightUpperLegAngle = Math.toRadians(2.0).toFloat(),
-    rightLowerLegAngle = Math.toRadians(0.0).toFloat(),
+    // Legs: wide spread "大" shape
+    leftUpperLegAngle  = Math.toRadians((-50.0)).toFloat(),  // wide left
+    leftLowerLegAngle  = Math.toRadians(15.0).toFloat(),     // slight knee bend
+    rightUpperLegAngle = Math.toRadians(50.0).toFloat(),     // wide right
+    rightLowerLegAngle = Math.toRadians((-15.0)).toFloat(),  // slight knee bend
 )
 
 /** WALKING front-facing: alternating limb swing. Used for depth walks (away/toward). */

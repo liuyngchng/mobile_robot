@@ -351,7 +351,7 @@ private fun ModelSlotCard(
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 } else {
                     LinearProgressIndicator(
-                        progress = slot.progress,
+                        progress = { slot.progress },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
