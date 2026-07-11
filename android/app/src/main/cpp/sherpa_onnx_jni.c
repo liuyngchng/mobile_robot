@@ -183,7 +183,7 @@ Java_com_rd_avatar_asr_SherpaAsrEngine_nativeDestroyRecognizer(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TTS: VITS
+// TTS: Matcha-TTS
 // ═══════════════════════════════════════════════════════════════════════════
 
 typedef struct {
@@ -195,39 +195,38 @@ typedef struct {
 JNIEXPORT jlong JNICALL
 Java_com_rd_avatar_tts_SherpaTtsEngine_nativeCreateTts(
     JNIEnv *env, jclass clazz,
-    jstring model, jstring tokens, jstring lexicon,
-    jstring dataDir, jint numThreads) {
+    jstring acousticModel, jstring vocoder,
+    jstring tokens, jstring lexicon, jint numThreads) {
 
-    const char *c_model = (*env)->GetStringUTFChars(env, model, NULL);
+    const char *c_acoustic = (*env)->GetStringUTFChars(env, acousticModel, NULL);
+    const char *c_vocoder = (*env)->GetStringUTFChars(env, vocoder, NULL);
     const char *c_tokens = (*env)->GetStringUTFChars(env, tokens, NULL);
     const char *c_lexicon = (*env)->GetStringUTFChars(env, lexicon, NULL);
-    const char *c_dataDir = dataDir ? (*env)->GetStringUTFChars(env, dataDir, NULL) : NULL;
 
-    LOGI("TTS: Creating VITS with model=%s, numThreads=%d",
-         c_model, (int)numThreads);
+    LOGI("TTS: Creating with acoustic=%s, vocoder=%s, numThreads=%d",
+         c_acoustic, c_vocoder, (int)numThreads);
 
     SherpaOnnxOfflineTtsConfig config;
     memset(&config, 0, sizeof(config));
 
-    config.model.vits.model = c_model;
-    config.model.vits.tokens = c_tokens;
-    config.model.vits.lexicon = c_lexicon;
-    config.model.vits.data_dir = c_dataDir;
-    config.model.vits.noise_scale = 0.667f;
-    config.model.vits.noise_scale_w = 0.8f;
-    config.model.vits.length_scale = 1.0f;
+    config.model.matcha.acoustic_model = c_acoustic;
+    config.model.matcha.vocoder = c_vocoder;
+    config.model.matcha.tokens = c_tokens;
+    config.model.matcha.lexicon = c_lexicon;
+    config.model.matcha.noise_scale = 0.667f;
+    config.model.matcha.length_scale = 1.0f;
     config.model.num_threads = (int32_t)numThreads;
-    config.model.provider = "xnnpack";  // XNNPACK: 2-4x faster TTS synthesis
+    config.model.provider = "cpu";
     config.model.debug = 0;
-    config.max_num_sentences = 1;  // process one sentence at a time for streaming
+    config.max_num_sentences = 1;
     config.silence_scale = 0.2f;
 
     const SherpaOnnxOfflineTts *tts = SherpaOnnxCreateOfflineTts(&config);
 
-    (*env)->ReleaseStringUTFChars(env, model, c_model);
+    (*env)->ReleaseStringUTFChars(env, acousticModel, c_acoustic);
+    (*env)->ReleaseStringUTFChars(env, vocoder, c_vocoder);
     (*env)->ReleaseStringUTFChars(env, tokens, c_tokens);
     (*env)->ReleaseStringUTFChars(env, lexicon, c_lexicon);
-    if (c_dataDir) (*env)->ReleaseStringUTFChars(env, dataDir, c_dataDir);
 
     if (!tts) {
         LOGE("TTS: Failed to create");
