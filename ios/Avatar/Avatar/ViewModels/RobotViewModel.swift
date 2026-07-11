@@ -125,6 +125,9 @@ class RobotViewModel: ObservableObject {
         guard !isRobotRunning else { return }
         isRobotRunning = true
 
+        // Clear chat history and LLM context on app (re)start
+        chatSession.clear()
+
         initEngines()
         startBlinkTimer()
         startAnticTimer()

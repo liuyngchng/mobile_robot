@@ -82,6 +82,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Clear chat history and LLM context on app (re)start
+        chatSession.clear()
+
         llmConfigured = configRepository.hasConfig
         Log.i("MainActivity", "LLM configured: $llmConfigured")
 

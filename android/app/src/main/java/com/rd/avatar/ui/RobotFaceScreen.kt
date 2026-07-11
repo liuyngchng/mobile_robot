@@ -36,12 +36,12 @@ import kotlin.random.Random
 
 // ─── Color Palette ────────────────────────────────────────────
 private val ColorBg        = Color(0xFF1A1A2E)
-private val ColorStickBody = Color(0xFFF0ECE6)       // warm white for body/limbs
-private val ColorHeadFill  = Color(0xFFFAF8F5)       // slightly warmer head fill
-private val ColorHeadStroke= Color(0xFFD0CCC6)       // subtle head outline
-private val ColorEye       = Color(0xFF1A1A2E)       // dark navy eyes
-private val ColorMouth     = Color(0xFFE94560)       // warm red mouth
-private val ColorBlush     = Color(0x40E94560)       // translucent blush
+private val ColorStickBody = Color(0xFFF2CC3D)       // emoji yellow body/limbs
+private val ColorHeadFill  = Color(0xFFFFE066)       // light yellow head
+private val ColorHeadStroke= Color(0xFFDDB800)       // golden head outline
+private val ColorEye       = Color(0xFF333333)       // soft charcoal eyes
+private val ColorMouth     = Color(0xFF444444)       // emoji dark mouth
+private val ColorBlush     = Color(0x40CC3333)       // translucent blush on yellow
 private val ColorShadow    = Color(0x18000000)       // ground shadow
 private val ColorAccent    = Color(0xFF66AAFF)       // mode accent
 
@@ -61,7 +61,7 @@ private const val HIP_W_FRACTION         = 0.04f   // hip half-width / canvas wi
 // Line weights
 private const val BODY_STROKE    = 6f
 private const val LIMB_STROKE    = 5f
-private const val JOINT_RADIUS   = 6f    // hand/foot dot
+private const val JOINT_RADIUS   = LIMB_STROKE * 0.8f   // hand/foot end cap
 private const val EYE_RADIUS_FRACTION  = 0.012f
 private const val MOUTH_W_FRACTION     = 0.04f
 
@@ -341,6 +341,37 @@ fun RobotFaceScreen(
                 strokeWidth = BODY_STROKE,
                 cap = StrokeCap.Round
             )
+            // Hip connectors — bridge body to leg joints
+            drawLine(
+                color = ColorStickBody,
+                start = hip,
+                end = leftHip,
+                strokeWidth = LIMB_STROKE,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = ColorStickBody,
+                start = hip,
+                end = rightHip,
+                strokeWidth = LIMB_STROKE,
+                cap = StrokeCap.Round
+            )
+
+            // ── Shoulder connectors — bridge body to arm joints ──
+            drawLine(
+                color = ColorStickBody,
+                start = neck,
+                end = leftShoulder,
+                strokeWidth = LIMB_STROKE,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = ColorStickBody,
+                start = neck,
+                end = rightShoulder,
+                strokeWidth = LIMB_STROKE,
+                cap = StrokeCap.Round
+            )
 
             // ── Arms ──
             drawLimb(leftShoulder, leftElbow, leftHand, jointR)
@@ -568,8 +599,8 @@ private fun listeningPose(pulse: Float): StickPose {
         hipShiftX         = lean * 0.8f,
         leftUpperArmAngle = Math.toRadians((-90.0 - pulse * 15.0)).toFloat(),  // left arm up to ear
         leftForearmAngle  = Math.toRadians((-30.0)).toFloat(),
-        rightUpperArmAngle = Math.toRadians((18.0)).toFloat(),
-        rightForearmAngle  = Math.toRadians((-10.0)).toFloat(),
+        rightUpperArmAngle = Math.toRadians(22.0).toFloat(),   // relaxed natural bend
+        rightForearmAngle  = Math.toRadians((-14.0)).toFloat(),
         leftUpperLegAngle  = Math.toRadians((-2.0)).toFloat(),
         leftLowerLegAngle  = 0f,
         rightUpperLegAngle = Math.toRadians((5.0)).toFloat(),
@@ -605,10 +636,10 @@ private fun thinkingPose(phase: Float): StickPose {
         headShiftY = -3f,
         neckShiftX = phase * 2f,
         hipShiftX  = phase * 1.5f,
-        leftUpperArmAngle  = Math.toRadians(10.0).toFloat(),   // hanging
-        leftForearmAngle   = Math.toRadians(5.0).toFloat(),
-        rightUpperArmAngle = Math.toRadians((-70.0)).toFloat(), // bent up to chin
-        rightForearmAngle  = Math.toRadians(60.0).toFloat(),   // hand under chin
+        leftUpperArmAngle  = Math.toRadians((-22.0)).toFloat(),   // relaxed natural bend
+        leftForearmAngle   = Math.toRadians(14.0).toFloat(),
+        rightUpperArmAngle = Math.toRadians((-70.0)).toFloat(),   // bent up to chin
+        rightForearmAngle  = Math.toRadians(60.0).toFloat(),      // hand under chin
         leftUpperLegAngle  = Math.toRadians((-2.0)).toFloat(),
         leftLowerLegAngle  = 0f,
         rightUpperLegAngle = Math.toRadians(2.0).toFloat(),
@@ -621,10 +652,10 @@ private fun lookingPose(): StickPose = StickPose(
     headTilt = 0f,
     headShiftX = 0f, headShiftY = -4f,
     neckShiftX = 6f, hipShiftX = 3f,     // lean forward slightly
-    leftUpperArmAngle  = Math.toRadians((-10.0)).toFloat(),
-    leftForearmAngle   = Math.toRadians(6.0).toFloat(),
-    rightUpperArmAngle = Math.toRadians((-75.0)).toFloat(), // hand above eyes
-    rightForearmAngle  = Math.toRadians((-30.0)).toFloat(), // visor pose
+    leftUpperArmAngle  = Math.toRadians((-22.0)).toFloat(),   // relaxed natural bend
+    leftForearmAngle   = Math.toRadians(14.0).toFloat(),
+    rightUpperArmAngle = Math.toRadians((-75.0)).toFloat(),   // hand above eyes
+    rightForearmAngle  = Math.toRadians((-30.0)).toFloat(),   // visor pose
     leftUpperLegAngle  = Math.toRadians((-2.0)).toFloat(),
     leftLowerLegAngle  = 0f,
     rightUpperLegAngle = Math.toRadians(4.0).toFloat(),
@@ -907,10 +938,10 @@ private fun DrawScope.drawLimb(
         strokeWidth = LIMB_STROKE,
         cap = StrokeCap.Round
     )
-    // Joint dot at elbow/knee (visible bend)
+    // Subtle elbow/knee dot — fills the inner bend gap
     drawCircle(
         color = ColorStickBody,
-        radius = endRadius * 0.85f,
+        radius = endRadius * 0.5f,
         center = joint2
     )
     // End dot (hand/foot)
@@ -944,13 +975,33 @@ private fun DrawScope.drawStickHead(
         style = Stroke(width = 2.5f)
     )
 
-    // Blush for happy/shy
+    // Blush for happy/shy — radial gradient from pink center → transparent edge
     if (emotion == Emotion.HAPPY || emotion == Emotion.SHY) {
         val blushR = radius * 0.22f
-        val blushY = center.y + radius * 0.25f
+        val blushY = center.y + radius * 0.05f
         val blushXOff = radius * 0.55f
-        drawCircle(color = ColorBlush, radius = blushR, center = Offset(center.x - blushXOff, blushY))
-        drawCircle(color = ColorBlush, radius = blushR, center = Offset(center.x + blushXOff, blushY))
+        val blushCenter = Color(0x55CC3333)
+        val blushEdge   = Color(0x00CC3333)
+        val leftCenter  = Offset(center.x - blushXOff, blushY)
+        val rightCenter = Offset(center.x + blushXOff, blushY)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(blushCenter, blushEdge),
+                center = leftCenter,
+                radius = blushR
+            ),
+            radius = blushR,
+            center = leftCenter
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(blushCenter, blushEdge),
+                center = rightCenter,
+                radius = blushR
+            ),
+            radius = blushR,
+            center = rightCenter
+        )
     }
 }
 
@@ -989,7 +1040,7 @@ private fun DrawScope.drawStickFace(
     // ── Eyebrows (simple curved lines) ──
     if (emotion != Emotion.NEUTRAL) {
         val browY = eyeY - eyeRadius * 2.8f
-        val browLen = eyeRadius * 2.5f
+        val browLen = eyeRadius * 1.8f
         drawStickEyebrow(leftEyeCenter.x, browY, browLen, emotion, left = true)
         drawStickEyebrow(rightEyeCenter.x, browY, browLen, emotion, left = false)
     }
@@ -1151,19 +1202,31 @@ private fun DrawScope.drawStickMouth(
     cx: Float, mouthY: Float, halfWidth: Float,
     emotion: Emotion, isSpeaking: Boolean, speakAmount: Float
 ) {
-    // ── Speaking: animated oval ──
+    // ── Speaking: emoji-style filled oval cavity + teeth ──
     if (isSpeaking) {
         val rx = halfWidth * 0.8f
         val baseRy = halfWidth * 0.55f
         val scale = 0.7f + speakAmount * 0.3f
         val ry = baseRy * scale
+
+        // Dark filled mouth cavity
         drawOval(
             color = ColorMouth,
             topLeft = Offset(cx - rx, mouthY - ry),
             size = Size(rx * 2f, ry * 2f),
-            style = Stroke(width = 3f, cap = StrokeCap.Round)
         )
-        // Small tongue
+
+        // White upper-tooth band — continuous bar across top of cavity
+        val barW = rx * 1.88f
+        val barH = ry * 0.84f
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(cx - barW / 2f, mouthY - ry * 0.75f),
+            size = Size(barW, barH),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(barH * 0.35f, barH * 0.35f),
+        )
+
+        // Tongue visible when mouth is open wider
         if (speakAmount > 0.5f) {
             val tongueW = rx * 0.35f
             val tongueH = ry * 0.5f

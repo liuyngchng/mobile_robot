@@ -15,15 +15,16 @@ import UIKit
 
 enum StickColors {
     static let bg          = UIColor(red: 0.10, green: 0.10, blue: 0.18, alpha: 1.0)  // #1A1A2E
-    static let stickBody   = UIColor(red: 0.94, green: 0.93, blue: 0.90, alpha: 1.0)  // #F0ECE6
-    static let headFill    = UIColor(red: 0.98, green: 0.97, blue: 0.96, alpha: 1.0)  // #FAF8F5
-    static let headStroke  = UIColor(red: 0.82, green: 0.80, blue: 0.78, alpha: 1.0)  // #D0CCC6
-    static let eye         = UIColor(red: 0.10, green: 0.10, blue: 0.18, alpha: 1.0)  // #1A1A2E
-    static let mouth       = UIColor(red: 0.91, green: 0.27, blue: 0.38, alpha: 1.0)  // #E94560
+    static let stickBody   = UIColor(red: 0.95, green: 0.80, blue: 0.24, alpha: 1.0)  // #F2CC3D emoji yellow
+    static let headFill    = UIColor(red: 1.00, green: 0.88, blue: 0.40, alpha: 1.0)  // #FFE066 light yellow
+    static let headStroke  = UIColor(red: 0.87, green: 0.72, blue: 0.00, alpha: 1.0)  // #DDB800 golden outline
+    static let eye         = UIColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1.0)  // #333333 soft charcoal
+    static let mouth       = UIColor(red: 0.27, green: 0.27, blue: 0.27, alpha: 1.0)  // #444444 emoji dark (lines & cavities)
     static let shadow      = UIColor(red: 0.00, green: 0.00, blue: 0.00, alpha: 0.09) // ground shadow
     static let accent      = UIColor(red: 0.40, green: 0.67, blue: 1.00, alpha: 1.0)  // #66AAFF
     static let tongue      = UIColor(red: 1.00, green: 0.42, blue: 0.54, alpha: 1.0)  // #FF6B8A
     static let lookingColor = UIColor(red: 0.40, green: 0.87, blue: 0.40, alpha: 1.0) // #66DD66
+    static let blush       = UIColor(red: 0.91, green: 0.40, blue: 0.40, alpha: 0.33) // blush center — radial gradient fades to 0
 }
 
 // MARK: - Cached Gradients
@@ -31,7 +32,7 @@ enum StickColors {
 enum StickGradients {
     static let head: CGGradient = {
         let colors = [StickColors.headFill.cgColor,
-                      UIColor(red: 0.91, green: 0.89, blue: 0.87, alpha: 1.0).cgColor] as CFArray
+                      UIColor(red: 0.91, green: 0.75, blue: 0.18, alpha: 1.0).cgColor] as CFArray // #E8BF2E
         return CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
                           colors: colors, locations: [0, 1])!
     }()
@@ -53,7 +54,7 @@ enum StickGeo {
 
     static let bodyStroke: CGFloat   = 6
     static let limbStroke: CGFloat   = 5
-    static let jointRadius: CGFloat  = 6
+    static let jointRadius: CGFloat  = limbStroke * 0.8   // hand/foot end cap
     static let eyeRadiusFrac: CGFloat   = 0.018
     static let mouthWFrac: CGFloat      = 0.045
 }
@@ -151,7 +152,7 @@ final class StickFigureDrawer {
             neckShiftX: lean * 1.5, hipShiftX: lean * 0.8,
             leftUpperArmAngle: deg2rad(-90 - Double(pulse) * 15),
             leftForearmAngle: deg2rad(-30),
-            rightUpperArmAngle: deg2rad(18), rightForearmAngle: deg2rad(-10),
+            rightUpperArmAngle: deg2rad(22), rightForearmAngle: deg2rad(-14),
             leftUpperLegAngle: deg2rad(-2), leftLowerLegAngle: 0,
             rightUpperLegAngle: deg2rad(5), rightLowerLegAngle: 0
         )
@@ -177,7 +178,7 @@ final class StickFigureDrawer {
             headTilt: deg2rad(-8 + Double(phase) * 4),
             headShiftX: phase * 3, headShiftY: -3,
             neckShiftX: phase * 2, hipShiftX: phase * 1.5,
-            leftUpperArmAngle: deg2rad(10), leftForearmAngle: deg2rad(5),
+            leftUpperArmAngle: deg2rad(-22), leftForearmAngle: deg2rad(14),
             rightUpperArmAngle: deg2rad(-70), rightForearmAngle: deg2rad(60),
             leftUpperLegAngle: deg2rad(-2), leftLowerLegAngle: 0,
             rightUpperLegAngle: deg2rad(2), rightLowerLegAngle: 0
@@ -187,7 +188,7 @@ final class StickFigureDrawer {
     private static func lookingPose() -> StickPose {
         StickPose(
             headShiftY: -4, neckShiftX: 6, hipShiftX: 3,
-            leftUpperArmAngle: deg2rad(-10), leftForearmAngle: deg2rad(6),
+            leftUpperArmAngle: deg2rad(-22), leftForearmAngle: deg2rad(14),
             rightUpperArmAngle: deg2rad(-75), rightForearmAngle: deg2rad(-30),
             leftUpperLegAngle: deg2rad(-2), leftLowerLegAngle: 0,
             rightUpperLegAngle: deg2rad(4), rightLowerLegAngle: 0
@@ -566,6 +567,15 @@ final class StickFigureDrawer {
         ctx.move(to: neck)
         ctx.addLine(to: hip)
         ctx.strokePath()
+        // Hip connectors — bridge body to leg joints
+        ctx.setLineWidth(StickGeo.limbStroke)
+        ctx.move(to: hip); ctx.addLine(to: leftHip); ctx.strokePath()
+        ctx.move(to: hip); ctx.addLine(to: rightHip); ctx.strokePath()
+
+        // Shoulder connectors — bridge body to arm joints
+        ctx.setLineWidth(StickGeo.limbStroke)
+        ctx.move(to: neck); ctx.addLine(to: leftShoulder); ctx.strokePath()
+        ctx.move(to: neck); ctx.addLine(to: rightShoulder); ctx.strokePath()
 
         // Arms
         drawLimb(ctx: ctx, j1: leftShoulder, j2: leftElbow, j3: leftHand, endR: jointR)
@@ -631,11 +641,11 @@ final class StickFigureDrawer {
         ctx.strokePath()
         ctx.move(to: j2); ctx.addLine(to: j3)
         ctx.strokePath()
-        // Joint dot
+        // Subtle elbow/knee dot — fills the inner bend gap
         ctx.setFillColor(StickColors.stickBody.cgColor)
-        ctx.fillEllipse(in: CGRect(x: j2.x - endR * 0.85, y: j2.y - endR * 0.85,
-                                    width: endR * 1.7, height: endR * 1.7))
-        // End dot
+        ctx.fillEllipse(in: CGRect(x: j2.x - endR * 0.5, y: j2.y - endR * 0.5,
+                                    width: endR * 1.0, height: endR * 1.0))
+        // End dot (hand/foot)
         ctx.fillEllipse(in: CGRect(x: j3.x - endR, y: j3.y - endR,
                                     width: endR * 2, height: endR * 2))
     }
@@ -657,6 +667,26 @@ final class StickFigureDrawer {
         ctx.setStrokeColor(StickColors.headStroke.cgColor)
         ctx.setLineWidth(2.5)
         ctx.strokeEllipse(in: headRect)
+
+        // Blush for happy/shy — radial gradient from pink center → transparent edge
+        if emotion == .happy || emotion == .shy {
+            let blushR = radius * 0.22
+            let blushY = center.y + radius * 0.05
+            let blushXOff = radius * 0.55
+            let blushColors = [
+                StickColors.blush.cgColor,
+                UIColor(red: 0.91, green: 0.40, blue: 0.40, alpha: 0.0).cgColor
+            ] as CFArray
+            let blushGrad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                        colors: blushColors, locations: [0, 1])!
+            for sign: CGFloat in [-1, 1] {
+                let c = CGPoint(x: center.x + sign * blushXOff, y: blushY)
+                ctx.drawRadialGradient(blushGrad,
+                                       startCenter: c, startRadius: 0,
+                                       endCenter: c, endRadius: blushR,
+                                       options: [])
+            }
+        }
 
         ctx.restoreGState()
     }
@@ -700,10 +730,10 @@ final class StickFigureDrawer {
             default:         return browYBase
             }
         }()
-        // Emoji convention: brows only for expressive emotions
-        let emotionsWithBrows: Set<Emotion> = [.sad, .surprised, .curious, .goofy, .shy]
+        // Emoji convention: brows for most emotions; happy/sleepy let eyes do the work
+        let emotionsWithBrows: Set<Emotion> = [.neutral, .sad, .surprised, .curious, .goofy, .shy]
         if emotionsWithBrows.contains(emotion) {
-            let browLen = eyeRadius * 1.8
+            let browLen = eyeRadius * 1.3
             drawEyebrow(ctx: ctx, eyeCx: leftEyeCenter.x, browY: browY,
                         halfLen: browLen, emotion: emotion, left: true)
             drawEyebrow(ctx: ctx, eyeCx: rightEyeCenter.x, browY: browY,
@@ -726,33 +756,44 @@ final class StickFigureDrawer {
 
         switch emotion {
         case .surprised:
+            // Emoji 😮: wide-open round eyes with catchlights
             ctx.setFillColor(StickColors.eye.cgColor)
             ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius * 1.6, y: pupilCenter.y - radius * 1.6,
                                         width: radius * 3.2, height: radius * 3.2))
+            // Large catchlight upper-left
             ctx.setFillColor(UIColor.white.cgColor)
-            ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius * 0.3 - radius * 0.15,
-                                        y: pupilCenter.y - radius * 0.4 - radius * 0.15,
-                                        width: radius * 0.3, height: radius * 0.3))
+            ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius * 0.5, y: pupilCenter.y - radius * 0.7,
+                                        width: radius * 0.45, height: radius * 0.45))
 
         case .happy:
-            // Emoji style: big dot eyes, smile does the expressing
-            ctx.setFillColor(StickColors.eye.cgColor)
-            ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius * 1.1, y: pupilCenter.y - radius * 1.1,
-                                        width: radius * 2.2, height: radius * 2.2))
-            ctx.setFillColor(UIColor.white.cgColor)
-            ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius * 0.3 - radius * 0.125,
-                                        y: pupilCenter.y - radius * 0.4 - radius * 0.125,
-                                        width: radius * 0.3, height: radius * 0.3))
-
-        case .sleepy:
+            // Emoji 😊: squinted upward arcs = happy closed eyes
+            let arcW = radius * 1.4
+            let arcH = radius * 0.9
+            let p = UIBezierPath()
+            p.move(to: CGPoint(x: pupilCenter.x - arcW, y: pupilCenter.y + arcH * 0.25))
+            p.addQuadCurve(to: CGPoint(x: pupilCenter.x + arcW, y: pupilCenter.y + arcH * 0.25),
+                          controlPoint: CGPoint(x: pupilCenter.x, y: pupilCenter.y - arcH))
             ctx.setStrokeColor(StickColors.eye.cgColor)
             ctx.setLineWidth(3.5)
             ctx.setLineCap(.round)
-            ctx.move(to: CGPoint(x: pupilCenter.x - radius * 1.0, y: pupilCenter.y))
-            ctx.addLine(to: CGPoint(x: pupilCenter.x + radius * 1.0, y: pupilCenter.y))
+            ctx.addPath(p.cgPath)
+            ctx.strokePath()
+
+        case .sleepy:
+            // Emoji 😴: downward arcs = relaxed closed eyes
+            let arcW = radius * 1.1
+            let p = UIBezierPath()
+            p.move(to: CGPoint(x: pupilCenter.x - arcW, y: pupilCenter.y - arcW * 0.15))
+            p.addQuadCurve(to: CGPoint(x: pupilCenter.x + arcW, y: pupilCenter.y - arcW * 0.15),
+                          controlPoint: CGPoint(x: pupilCenter.x, y: pupilCenter.y + arcW * 0.55))
+            ctx.setStrokeColor(StickColors.eye.cgColor)
+            ctx.setLineWidth(3.0)
+            ctx.setLineCap(.round)
+            ctx.addPath(p.cgPath)
             ctx.strokePath()
 
         case .goofy:
+            // Emoji 😜: derp eyes — big circle + tiny off-center pupil
             ctx.setFillColor(StickColors.eye.cgColor)
             ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius * 1.5, y: pupilCenter.y - radius * 1.5,
                                         width: radius * 3, height: radius * 3))
@@ -766,13 +807,13 @@ final class StickFigureDrawer {
                                         width: radius * 0.25, height: radius * 0.25))
 
         default:
+            // Neutral/sad/shy/curious: filled circles with catchlight
             ctx.setFillColor(StickColors.eye.cgColor)
             ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius, y: pupilCenter.y - radius,
                                         width: radius * 2, height: radius * 2))
             ctx.setFillColor(UIColor.white.cgColor)
-            ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius * 0.25 - radius * 0.125,
-                                        y: pupilCenter.y - radius * 0.35 - radius * 0.125,
-                                        width: radius * 0.25, height: radius * 0.25))
+            ctx.fillEllipse(in: CGRect(x: pupilCenter.x - radius * 0.3, y: pupilCenter.y - radius * 0.4,
+                                        width: radius * 0.35, height: radius * 0.35))
         }
 
     }
@@ -788,9 +829,13 @@ final class StickFigureDrawer {
 
         switch emotion {
         case .happy:
-            p.move(to: CGPoint(x: x0, y: browY))
-            p.addQuadCurve(to: CGPoint(x: x1, y: browY),
-                          controlPoint: CGPoint(x: eyeCx, y: browY - arch * 1.5))
+            break  // 😊 squint eyes carry the expression, no brows needed
+        case .neutral:
+            // Emoji 😐: subtle flat brows, slight downward angle toward center
+            let innerY = browY + halfLen * 0.15
+            p.move(to: CGPoint(x: x0, y: browY - halfLen * 0.1))
+            p.addQuadCurve(to: CGPoint(x: x1, y: innerY),
+                          controlPoint: CGPoint(x: eyeCx, y: browY - halfLen * 0.05))
         case .sad:
             let sign: CGFloat = left ? 1 : -1
             p.move(to: CGPoint(x: x0, y: browY + halfLen * 0.3))
@@ -848,11 +893,32 @@ final class StickFigureDrawer {
             let baseRy = halfWidth * 0.55
             let scale: CGFloat = 0.7 + speakAmount * 0.3
             let ry = baseRy * scale
-            ctx.setStrokeColor(StickColors.mouth.cgColor)
-            ctx.setLineWidth(4)
-            ctx.setLineCap(.round)
-            ctx.strokeEllipse(in: CGRect(x: cx - rx, y: mouthY - ry, width: rx * 2, height: ry * 2))
-            // Tongue
+
+            // Mouth cavity shape (full ellipse)
+            let mouthRect = CGRect(x: cx - rx, y: mouthY - ry, width: rx * 2, height: ry * 2)
+            let mouthPath = UIBezierPath(ovalIn: mouthRect)
+
+            // Dark filled mouth cavity
+            ctx.setFillColor(StickColors.mouth.cgColor)
+            ctx.addPath(mouthPath.cgPath)
+            ctx.fillPath()
+
+            // Clip white tooth bar to mouth shape
+            ctx.saveGState()
+            ctx.addPath(mouthPath.cgPath)
+            ctx.clip()
+
+            let barW = rx * 1.88
+            let barH = ry * 0.84
+            let barRect = CGRect(x: cx - barW / 2, y: mouthY - ry * 0.75,
+                                 width: barW, height: barH)
+            let barPath = UIBezierPath(roundedRect: barRect,
+                                       cornerRadius: barH * 0.35)
+            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.addPath(barPath.cgPath)
+            ctx.fillPath()
+
+            // Tongue — also clipped to cavity
             if speakAmount > 0.5 {
                 let tongueW = rx * 0.35
                 let tongueH = ry * 0.5
@@ -860,20 +926,27 @@ final class StickFigureDrawer {
                 ctx.fillEllipse(in: CGRect(x: cx - tongueW, y: mouthY + ry * 0.1,
                                            width: tongueW * 2, height: tongueH * 2))
             }
+
+            ctx.restoreGState()
             return
         }
 
         switch emotion {
         case .happy:
-            drawCurvedMouth(ctx: ctx, cx: cx, my: mouthY, hw: halfWidth, bw: 1.0, cpY: halfWidth * 0.8)
+            // Emoji-style filled D-shaped open grin.
+            // White head → white teeth invisible → red cavity replaces them.
+            drawOpenGrin(ctx: ctx, cx: cx, mouthY: mouthY,
+                         rx: halfWidth * 1.05, ry: halfWidth * 0.7)
         case .sad:
-            drawCurvedMouth(ctx: ctx, cx: cx, my: mouthY, hw: halfWidth * 0.7, bw: 0.7, cpY: -halfWidth * 0.4)
+            // Emoji 😢: downturned corners, wider than neutral
+            drawCurvedMouth(ctx: ctx, cx: cx, my: mouthY, hw: halfWidth * 0.85, bw: 0.85, cpY: -halfWidth * 0.45)
         case .surprised:
-            let r = halfWidth * 0.45
+            // Emoji 😮: large open round mouth
+            let r = halfWidth * 0.55
             ctx.setStrokeColor(StickColors.mouth.cgColor)
             ctx.setLineWidth(3.5)
             ctx.setLineCap(.round)
-            ctx.strokeEllipse(in: CGRect(x: cx - r, y: mouthY - r * 0.3, width: r * 2, height: r * 1.6))
+            ctx.strokeEllipse(in: CGRect(x: cx - r, y: mouthY - r * 0.2, width: r * 2, height: r * 1.8))
         case .curious:
             ctx.setFillColor(StickColors.mouth.cgColor)
             ctx.fillEllipse(in: CGRect(x: cx - halfWidth * 0.35, y: mouthY - halfWidth * 0.35,
@@ -906,6 +979,45 @@ final class StickFigureDrawer {
         default:
             drawCurvedMouth(ctx: ctx, cx: cx, my: mouthY, hw: halfWidth * 0.8, bw: 0.8, cpY: halfWidth * 0.08)
         }
+    }
+
+    /// Emoji-style filled semi-ellipse grin with white tooth bar clipped to cavity.
+    /// - Parameters:
+    ///   - rx: horizontal radius of the mouth cavity
+    ///   - ry: vertical radius (depth of open mouth)
+    private static func drawOpenGrin(ctx: CGContext, cx: CGFloat, mouthY: CGFloat,
+                                      rx: CGFloat, ry: CGFloat) {
+        // Mouth cavity shape (semi-ellipse with flat top)
+        // Compensate center Y: addArc's transform scales both radius AND center.
+        // `mouthY * rx / ry` cancels the `scaleX:1, y:ry/rx` transform so the
+        // effective center lands back at (cx, mouthY).
+        let cavityPath = CGMutablePath()
+        cavityPath.addArc(center: CGPoint(x: cx, y: mouthY * rx / ry), radius: rx,
+                          startAngle: 0, endAngle: .pi, clockwise: false,
+                          transform: CGAffineTransform(scaleX: 1.0, y: ry / rx))
+        cavityPath.closeSubpath()
+
+        // Draw dark mouth cavity
+        ctx.setFillColor(StickColors.mouth.cgColor)
+        ctx.addPath(cavityPath)
+        ctx.fillPath()
+
+        // White tooth bar — clipped to cavity so it never overflows the edges
+        ctx.saveGState()
+        ctx.addPath(cavityPath)
+        ctx.clip()
+
+        let barW = rx * 1.88
+        let barH = ry * 0.84
+        let barRect = CGRect(x: cx - barW / 2, y: mouthY - barH * 0.65,
+                             width: barW, height: barH)
+        let barPath = UIBezierPath(roundedRect: barRect,
+                                   cornerRadius: barH * 0.35)
+        ctx.setFillColor(UIColor.white.cgColor)
+        ctx.addPath(barPath.cgPath)
+        ctx.fillPath()
+
+        ctx.restoreGState()
     }
 
     private static func drawCurvedMouth(ctx: CGContext, cx: CGFloat, my: CGFloat,
