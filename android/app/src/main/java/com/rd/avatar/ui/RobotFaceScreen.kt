@@ -116,9 +116,9 @@ fun RobotFaceScreen(
     // Goofy antic animation (triggered by anticTrigger)
     LaunchedEffect(state.anticTrigger) {
         if (state.anticTrigger > 0L && state.mode == RobotMode.IDLE) {
-            anticPhase.animateTo(1f, tween(400, easing = FastOutSlowInEasing))
-            delay(800)
-            anticPhase.animateTo(0f, tween(600, easing = FastOutSlowInEasing))
+            anticPhase.animateTo(1f, tween(800, easing = FastOutSlowInEasing))
+            delay(1600)
+            anticPhase.animateTo(0f, tween(1200, easing = FastOutSlowInEasing))
         }
     }
 
@@ -128,13 +128,13 @@ fun RobotFaceScreen(
             && state.mode == RobotMode.IDLE) {
             // Phase 1: crouch (0 → 0.25) — anticipation
             jumpPhase.snapTo(0f)
-            jumpPhase.animateTo(0.25f, tween(200, easing = FastOutSlowInEasing))
+            jumpPhase.animateTo(0.25f, tween(400, easing = FastOutSlowInEasing))
             // Phase 2: launch up (0.25 → 0.6) — fast!
-            jumpPhase.animateTo(0.6f, tween(250, easing = LinearEasing))
+            jumpPhase.animateTo(0.6f, tween(500, easing = LinearEasing))
             // Phase 3: hold apex briefly
-            delay(100)
+            delay(200)
             // Phase 4: fall + land (0.6 → 1.0) — gravity
-            jumpPhase.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+            jumpPhase.animateTo(1f, tween(600, easing = FastOutSlowInEasing))
             // Reset
             jumpPhase.snapTo(0f)
         }
@@ -152,25 +152,25 @@ fun RobotFaceScreen(
                     state.anticTrigger % 9L == 2L -> {
                         walkType = WalkType.LEFT
                         walkPhase.snapTo(0f)
-                        walkPhase.animateTo(1f, tween(2000, easing = LinearEasing))
+                        walkPhase.animateTo(1f, tween(4000, easing = LinearEasing))
                         walkType = WalkType.NONE
                     }
                     state.anticTrigger % 9L == 5L -> {
                         walkType = WalkType.RIGHT
                         walkPhase.snapTo(0f)
-                        walkPhase.animateTo(1f, tween(2000, easing = LinearEasing))
+                        walkPhase.animateTo(1f, tween(4000, easing = LinearEasing))
                         walkType = WalkType.NONE
                     }
                     state.anticTrigger % 11L == 3L -> {
                         walkType = WalkType.AWAY
                         walkPhase.snapTo(0f)
-                        walkPhase.animateTo(1f, tween(2500, easing = FastOutSlowInEasing))
+                        walkPhase.animateTo(1f, tween(5000, easing = FastOutSlowInEasing))
                         walkType = WalkType.NONE
                     }
                     state.anticTrigger % 11L == 8L -> {
                         walkType = WalkType.TOWARD
                         walkPhase.snapTo(0f)
-                        walkPhase.animateTo(1f, tween(2500, easing = FastOutSlowInEasing))
+                        walkPhase.animateTo(1f, tween(5000, easing = FastOutSlowInEasing))
                         walkType = WalkType.NONE
                     }
                 }

@@ -224,10 +224,10 @@ final class FaceDisplayView: UIView {
         let tickInterval = 1.0 / Double(Self.targetFPS)
 
         // Phase 1: in
-        animateAntic(to: 1.0, duration: 0.4, tick: tickInterval) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+        animateAntic(to: 1.0, duration: 0.8, tick: tickInterval) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
                 // Phase 2: out
-                self?.animateAntic(to: 0.0, duration: 0.6, tick: tickInterval, completion: {})
+                self?.animateAntic(to: 0.0, duration: 1.2, tick: tickInterval, completion: {})
             }
         }
     }
@@ -255,12 +255,12 @@ final class FaceDisplayView: UIView {
         let tick = 1.0 / Double(Self.targetFPS)
 
         // Phase 1: crouch (0 → 0.25)
-        animateJump(to: 0.25, duration: 0.2, tick: tick) {
+        animateJump(to: 0.25, duration: 0.4, tick: tick) {
             // Phase 2: launch up (0.25 → 0.6)
-            self.animateJump(to: 0.6, duration: 0.25, tick: tick) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self.animateJump(to: 0.6, duration: 0.5, tick: tick) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
                     // Phase 3: fall + land (0.6 → 1.0)
-                    self?.animateJump(to: 1.0, duration: 0.3, tick: tick) {
+                    self?.animateJump(to: 1.0, duration: 0.6, tick: tick) {
                         self?.jumpPhase = 0
                     }
                 }
@@ -290,7 +290,7 @@ final class FaceDisplayView: UIView {
         walkType = type
         walkPhase = 0
         let tick = 1.0 / Double(Self.targetFPS)
-        let duration: TimeInterval = (type == .left || type == .right) ? 2.0 : 2.5
+        let duration: TimeInterval = (type == .left || type == .right) ? 4.0 : 5.0
         let steps = max(1, Int(duration / tick))
         var i = 0
         walkTimer = Timer.scheduledTimer(withTimeInterval: tick, repeats: true) { [weak self] timer in
