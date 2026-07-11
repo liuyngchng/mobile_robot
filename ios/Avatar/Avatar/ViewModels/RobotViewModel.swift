@@ -206,6 +206,10 @@ class RobotViewModel: ObservableObject {
         guard !isInitializingEngines else { return }
         isInitializingEngines = true
 
+        // Show waking-up state during engine loading (matches Android)
+        robotState.mode = .thinking
+        robotState.emotion = .sleepy
+
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
 
@@ -217,6 +221,8 @@ class RobotViewModel: ObservableObject {
                 self.isInitializingEngines = false
                 if self.enginesReady {
                     self.errorMessage = nil
+                    self.robotState.mode = .idle
+                    self.robotState.emotion = .neutral
                     // Discover how many speakers the TTS model supports
                     self.ttsNumSpeakers = self.ttsEngine.numSpeakers
                     // Load saved speaker ID, clamp to valid range
@@ -298,7 +304,11 @@ class RobotViewModel: ObservableObject {
 
     func onTap() {
         guard enginesReady else {
-            errorMessage = "模型未就绪，请先上传模型文件"
+            // Silently ignore taps while engines are loading ("小火正在醒来...");
+            // only show an error if initialization completed but failed.
+            if !isInitializingEngines {
+                errorMessage = "模型加载失败，请检查模型文件"
+            }
             return
         }
 

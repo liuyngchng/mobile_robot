@@ -88,9 +88,8 @@ struct RobotMainScreen: View {
                         Spacer()
 
                         // Bottom: status text (matches Android RobotFaceScreen)
-                        let enginesReady = true  // engines init in viewModel
                         let statusText: String = {
-                            if !enginesReady {
+                            if !viewModel.enginesReady {
                                 return "小火正在醒来..."
                             }
                             switch viewModel.robotState.mode {
